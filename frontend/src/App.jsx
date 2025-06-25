@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import AdminFormManager from './components/AdminFormManager';
 import ManageForms from './components/ManageForms';
 import UserFormView from './components/UserFormView';
+import UserFormViewExperimental from './components/UserFormViewExperimental';
 
 const Home = () => (
   <div className="p-4">
@@ -24,7 +25,7 @@ const App = () => {
         <Route path="/" element={<Home />} />
         <Route path="/admin" element={<AdminFormManager />} />
         <Route path="/manage" element={<ManageForms />} />
-        <Route path="/formular-eingabe/:formName/:patientId" element={<UserFormView />} />
+        <Route path="/formular-eingabe/:formName/:patientId" element={<UserFormViewExperimental />} />
         {/* Optional: 404-Fallback */}
         <Route path="*" element={<p className="p-4 text-red-600">❌ Seite nicht gefunden</p>} />
       </Routes>

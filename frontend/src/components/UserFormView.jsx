@@ -4,7 +4,6 @@ import SignatureCanvas from "react-signature-canvas";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
-
 import {
   Box,
   Typography,
@@ -15,6 +14,7 @@ import {
   Alert,
   Divider,
   FormGroup,
+  Paper,
 } from "@mui/material";
 
 import {
@@ -40,10 +40,9 @@ const UserFormView = () => {
         setText(res.text);
         setEntryId(res.data._id);
         setValues(res.data.data || {});
-
         const patient = await getPatient(patientId);
         setPatientName(patient.name);
-      } catch (err) {
+      } catch {
         setMessage("❌ Fehler beim Laden des Formulars");
       }
     };
@@ -74,29 +73,93 @@ const UserFormView = () => {
   };
 
   const renderForm = () => {
-    return text.split(/\r?\n/).map((line, idx) => {
+    const lines = text.split(/\r?\n/);
+    const elements = [];
+    let buffer = [];
+
+    const flushMarkdown = (keyPrefix) => {
+      const md = buffer.join("\n").trim();
+      if (md) {
+        elements.push(
+          <Box key={`md-${keyPrefix}`} sx={{ my: 2 }}>
+            <ReactMarkdown
+              rehypePlugins={[rehypeRaw]}
+              remarkPlugins={[remarkGfm]}
+              components={{
+                table: ({ children }) => (
+                  <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", my: 2 }}>
+                    {children}
+                  </Box>
+                ),
+                thead: ({ children }) => (
+                  <Box component="thead" sx={{ backgroundColor: "#f0f0f0" }}>
+                    {children}
+                  </Box>
+                ),
+                tbody: ({ children }) => <Box component="tbody">{children}</Box>,
+                tr: ({ children }) => (
+                  <Box component="tr" sx={{ borderBottom: "1px solid #ccc" }}>
+                    {children}
+                  </Box>
+                ),
+                th: ({ children }) => (
+                  <Box
+                    component="th"
+                    sx={{
+                      textAlign: "left",
+                      fontWeight: "bold",
+                      padding: "8px",
+                      border: "1px solid #ccc",
+                    }}
+                  >
+                    {children}
+                  </Box>
+                ),
+                td: ({ children }) => (
+                  <Box
+                    component="td"
+                    sx={{
+                      padding: "8px",
+                      border: "1px solid #ccc",
+                    }}
+                  >
+                    {children}
+                  </Box>
+                ),
+              }}
+            >
+              {md}
+            </ReactMarkdown>
+          </Box>
+        );
+        buffer = [];
+      }
+    };
+
+    lines.forEach((line, idx) => {
       if (line.includes("[Textfeld ")) {
+        flushMarkdown(idx);
         const name = line.match(/\[Textfeld (.+?)\]/)?.[1];
-        const label = line.replace(/\[Textfeld .+?\]/, "").trim();
-        return (
+        elements.push(
           <TextField
-            key={idx}
-            label={label}
+            key={`tf-${idx}`}
+            label={line.replace(/\[Textfeld .+?\]/, "").trim()}
             value={values[name] || ""}
             onChange={(e) => handleChange(name, e.target.value)}
             fullWidth
             margin="normal"
           />
         );
+        return;
       }
 
       if (line.includes("[Datum ")) {
+        flushMarkdown(idx);
         const name = line.match(/\[Datum (.+?)\]/)?.[1];
-        const label = line.replace(/\[Datum .+?\]/, "").trim();
-        return (
+        elements.push(
           <TextField
-            key={idx}
-            label={label}
+            key={`date-${idx}`}
+            label={line.replace(/\[Datum .+?\]/, "").trim()}
             type="date"
             InputLabelProps={{ shrink: true }}
             value={values[name] || ""}
@@ -105,13 +168,15 @@ const UserFormView = () => {
             margin="normal"
           />
         );
+        return;
       }
 
-      if (line.includes("[Checkbox ")) {
+      if (line.match(/^[-*] +\[Checkbox (.+?)\]/)) {
+        flushMarkdown(idx);
         const name = line.match(/\[Checkbox (.+?)\]/)?.[1];
-        const label = line.replace(/.*\] /, "").trim();
-        return (
-          <FormGroup key={idx} sx={{ mt: 1 }}>
+        const label = line.replace(/^[-*] +\[Checkbox .+?\]/, "").trim();
+        elements.push(
+          <FormGroup key={`cb-${idx}`} sx={{ mt: 1 }}>
             <FormControlLabel
               control={
                 <Checkbox
@@ -123,11 +188,29 @@ const UserFormView = () => {
             />
           </FormGroup>
         );
+        return;
+      }
+
+      if (line.includes("[Checkbox ")) {
+        flushMarkdown(idx);
+        const name = line.match(/\[Checkbox (.+?)\]/)?.[1];
+        const [textBefore] = line.split("[Checkbox ");
+        elements.push(
+          <Box key={`inline-cb-${idx}`} sx={{ display: "flex", alignItems: "center", mt: 1 }}>
+            <Typography sx={{ mr: 2 }}>{textBefore.trim()}</Typography>
+            <Checkbox
+              checked={values[name] || false}
+              onChange={(e) => handleChange(name, e.target.checked)}
+            />
+          </Box>
+        );
+        return;
       }
 
       if (line.includes("[Signature ")) {
-        return (
-          <Box key={idx} sx={{ mt: 3 }}>
+        flushMarkdown(idx);
+        elements.push(
+          <Box key={`sig-${idx}`} sx={{ mt: 3 }}>
             <Typography variant="subtitle1" sx={{ mb: 1 }}>
               Unterschrift:
             </Typography>
@@ -138,35 +221,42 @@ const UserFormView = () => {
             />
           </Box>
         );
+        return;
       }
 
-      return (
-        <Box key={idx} sx={{ my: 1 }}>
-          <ReactMarkdown rehypePlugins={[rehypeRaw, remarkGfm]}>{line}</ReactMarkdown>
-        </Box>
-      );
+      buffer.push(line);
     });
+
+    flushMarkdown("end");
+
+    return elements;
   };
 
   return (
-    <Box sx={{ p: 4, maxWidth: 700, mx: "auto" }}>
-      {message && <Alert severity="info" sx={{ mb: 2 }}>{message}</Alert>}
+    <Box sx={{ p: 4, display: "flex", justifyContent: "center" }}>
+      <Paper sx={{ width: "100%", maxWidth: "900px", p: 4 }} elevation={3}>
+        {message && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            {message}
+          </Alert>
+        )}
 
-      <Typography variant="subtitle1" gutterBottom>
-        👤 Patient: <strong>{patientName}</strong>
-      </Typography>
-      <Divider sx={{ my: 2 }} />
+        <Typography variant="subtitle1" gutterBottom>
+          👤 Patient: <strong>{patientName}</strong>
+        </Typography>
+        <Divider sx={{ my: 2 }} />
 
-      {renderForm()}
+        {renderForm()}
 
-      <Box sx={{ display: "flex", gap: 2, mt: 4 }}>
-        <Button variant="outlined" onClick={handleSave} color="primary">
-          💾 Speichern
-        </Button>
-        <Button variant="contained" onClick={handleSubmit} color="success">
-          ✅ Abschicken
-        </Button>
-      </Box>
+        <Box sx={{ display: "flex", gap: 2, mt: 4 }}>
+          <Button variant="outlined" onClick={handleSave} color="primary">
+            💾 Speichern
+          </Button>
+          <Button variant="contained" onClick={handleSubmit} color="success">
+            ✅ Abschicken
+          </Button>
+        </Box>
+      </Paper>
     </Box>
   );
 };
