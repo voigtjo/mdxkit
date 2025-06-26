@@ -22,7 +22,6 @@ import {
 
 import { parseFormText } from "@/utils/parseFormText.jsx";
 
-
 const UserFormViewExperimental = () => {
   const { formName, patientId } = useParams();
   const [formText, setFormText] = useState("");
@@ -44,7 +43,8 @@ const UserFormViewExperimental = () => {
         const patient = await getPatient(patientId);
         setPatientName(patient.name);
 
-        const parsed = parseFormText(res.text);
+        const parsed = parseFormText(res.text, res.data.data || {}, handleChange, sigRef);
+        console.log("🔍 Parsed elements:", parsed);
         setParsedElements(parsed);
       } catch (err) {
         console.error("❌ Fehler beim Laden des Formulars:", err);
@@ -77,75 +77,6 @@ const UserFormViewExperimental = () => {
     }
   };
 
-  const renderElement = (el, idx) => {
-    switch (el.type) {
-      case "heading":
-        return (
-          <Typography key={idx} variant={el.level === 1 ? "h5" : "h6"} sx={{ mt: 2 }}>
-            {el.content}
-          </Typography>
-        );
-      case "text":
-        return (
-          <Typography key={idx} sx={{ my: 1 }}>
-            {el.content}
-          </Typography>
-        );
-      case "textfield":
-        return (
-          <TextField
-            key={idx}
-            label={el.label}
-            value={values[el.name] || ""}
-            onChange={(e) => handleChange(el.name, e.target.value)}
-            fullWidth
-            margin="normal"
-          />
-        );
-      case "date":
-        return (
-          <TextField
-            key={idx}
-            label={el.label}
-            type="date"
-            InputLabelProps={{ shrink: true }}
-            value={values[el.name] || ""}
-            onChange={(e) => handleChange(el.name, e.target.value)}
-            fullWidth
-            margin="normal"
-          />
-        );
-      case "checkbox":
-        return (
-          <FormControlLabel
-            key={idx}
-            control={
-              <Checkbox
-                checked={values[el.name] || false}
-                onChange={(e) => handleChange(el.name, e.target.checked)}
-              />
-            }
-            label={el.label}
-          />
-        );
-      case "signature":
-        return (
-          <Box key={idx} sx={{ mt: 3 }}>
-            <Typography variant="subtitle1" sx={{ mb: 1 }}>
-              Unterschrift:
-            </Typography>
-            <SignatureCanvas
-              ref={sigRef}
-              penColor="black"
-              canvasProps={{ className: "border", style: { width: "100%", height: 100 } }}
-            />
-          </Box>
-        );
-      default:
-        return null;
-    }
-  };
-
   return (
     <Box sx={{ p: 4, display: "flex", justifyContent: "center" }}>
       <Paper sx={{ width: "100%", maxWidth: "900px", p: 4 }} elevation={3}>
@@ -156,7 +87,8 @@ const UserFormViewExperimental = () => {
         </Typography>
         <Divider sx={{ my: 2 }} />
 
-        {parsedElements.map((el, idx) => renderElement(el, idx))}
+        {/* Direkt JSX-Array rendern */}
+        <Box>{parsedElements}</Box>
 
         <Box sx={{ display: "flex", gap: 2, mt: 4 }}>
           <Button variant="outlined" onClick={handleSave} color="primary">
