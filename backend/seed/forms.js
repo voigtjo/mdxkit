@@ -6,36 +6,30 @@ require('dotenv').config();
 
 const examples = [
   {
-    name: 'physiotherapie-aufklaerung',
-    text: `# Patientenaufklärung zur Physiotherapie
+    name: 'einwilligung-generell',
+    text: `# Hauptüberschrift
 
-**Name des Patienten:** [Textfeld name]
+## Abschnitt
 
-**Geburtsdatum:** [Datum geburt]
+Text: [Textfeld name]
+Geburtstag: [Datum geburt]
 
-## Beschwerden
-Bitte kreuzen Sie an:
-- [Checkbox schmerz_nacken] Schmerzen im Nacken
-- [Checkbox schmerz_ruecken] Rückenschmerzen
-- [Checkbox schmerz_schulter] Schulterschmerzen
+### Beschwerden
+- [Checkbox ruecken] Rückenschmerzen
+- [Checkbox nacken] Nackenschmerzen
 
-## Zustimmung zur Behandlung
-Ich bin mit der Behandlung einverstanden: [Checkbox zustimmung]
+### Zustimmung
+Ich stimme zu: [Checkbox zustimmung]
 
-Unterschrift: [Signature unterschrift]`
-  },
-  {
-    name: 'einwilligung-datenschutz',
-    text: `# Einwilligung zur Datenverarbeitung
+Unterschrift: [Signature unterschrift]
 
-**Patient:** [Textfeld name]
-**Geburtsdatum:** [Datum geburt]
+[Tabelle]
+| Name     | Geburtsdatum | Einwilligung |
+|----------|--------------|--------------|
+| Anna     | 12.01.2000   | ✅            |
+| ...      | ...          | ...          |
+[/Tabelle]`
 
-Ich willige ein, dass meine Gesundheitsdaten elektronisch gespeichert und verarbeitet werden: [Checkbox einwilligung]
-
-Ich wurde über meine Rechte informiert: [Checkbox rechte_info]
-
-Unterschrift: [Signature unterschrift]`
   }
 ];
 
