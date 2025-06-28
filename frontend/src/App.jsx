@@ -5,6 +5,7 @@ import AdminFormManager from './components/AdminFormManager';
 import ManageForms from './components/ManageForms';
 import UserFormView from './components/UserFormView';
 import UserFormViewExperimental from './components/UserFormViewExperimental';
+import UserFormViewStructured from './components/UserFormViewStructured';
 
 const Home = () => (
   <div className="p-4">
@@ -25,7 +26,7 @@ const App = () => {
         <Route path="/" element={<Home />} />
         <Route path="/admin" element={<AdminFormManager />} />
         <Route path="/manage" element={<ManageForms />} />
-        <Route path="/formular-eingabe/:formName/:patientId" element={<UserFormViewExperimental />} />
+        <Route path="/formular-eingabe/:formName/:patientId" element={<UserFormViewStructured />} />
         {/* Optional: 404-Fallback */}
         <Route path="*" element={<p className="p-4 text-red-600">❌ Seite nicht gefunden</p>} />
       </Routes>
