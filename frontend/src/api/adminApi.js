@@ -9,6 +9,25 @@ export const uploadForm = async (name, text) => {
 
 export const getForms = async () => {
   const res = await axios.get(`${API}/forms`);
-  // 🛠 Sicherstellen, dass ein Array zurückgegeben wird
-  return Array.isArray(res.data) ? res.data : [];
+  return res.data;
 };
+
+export const lockFormVersion = async (formName, version) => {
+  const res = await axios.post(`${API}/forms/${formName}/lock`, { version });
+  return res.data;
+};
+
+
+export const releaseFormVersion = async (formName) => {
+  const res = await axios.post(`${API}/forms/${formName}/release`);
+  return res.data;
+};
+
+export const getFormVersionText = async (formName, version) => {
+  const res = await axios.get(`${API}/forms/${formName}/version/${version}`);
+  return res.data;
+};
+
+
+
+

@@ -33,3 +33,8 @@ export const deleteFormAssignment = async (entryId) => {
   return res.data;
 };
 
+// 🆕 ALLE Formulareinträge abrufen
+export const getAllFormData = async () => {
+  const res = await axios.get(`${API}/allFormData`);
+  return res.data;
+};

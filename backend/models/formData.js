@@ -6,7 +6,7 @@ const formDataSchema = new mongoose.Schema({
   patientId: { type: String, required: true },
   data: { type: mongoose.Schema.Types.Mixed },
   signature: { type: String }, // base64
-  status: { type: String, enum: ['offen', 'ausgefüllt', 'angenommen'], default: 'offen' },
+  status: { type: String, enum: ['offen', 'gespeichert', 'freigegeben', 'angenommen'], default: 'offen' },
   updatedAt: { type: Date, default: Date.now },
 });
 

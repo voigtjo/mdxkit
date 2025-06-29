@@ -1,11 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { getForms } from '@/api/adminApi';
-import { assignForm, getFormsByName, deleteFormAssignment } from '@/api/manageApi';
-import { getPatients } from '@/api/patientApi';
-import { Link } from 'react-router-dom';
 import {
   Box,
-  Container,
   Typography,
   FormControl,
   InputLabel,
@@ -13,16 +8,33 @@ import {
   MenuItem,
   Button,
   Alert,
-  List,
-  ListItem,
-  ListItemText,
   Tooltip,
   Stack,
-  IconButton
+  IconButton,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  Paper,
+  Divider,
+  Container,
 } from '@mui/material';
+import { Link } from 'react-router-dom';
 import SendIcon from '@mui/icons-material/Send';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+
+import { getForms } from '@/api/adminApi';
+import {
+  assignForm,
+  getFormsByName,
+  deleteFormAssignment,
+  getAllFormData,
+  reopenForm
+} from '@/api/manageApi';
+import { getPatients } from '@/api/patientApi';
 
 const ManageForms = () => {
   const [forms, setForms] = useState([]);
@@ -30,29 +42,25 @@ const ManageForms = () => {
   const [selectedForm, setSelectedForm] = useState('');
   const [selectedPatient, setSelectedPatient] = useState('');
   const [entries, setEntries] = useState([]);
+  const [formDataList, setFormDataList] = useState([]);
   const [message, setMessage] = useState('');
 
-  const loadForms = async () => {
-    try {
-      const list = await getForms();
-      setForms(Array.isArray(list) ? list : []);
-    } catch {
-      setForms([]);
-    }
-  };
-
-  const loadPatients = async () => {
-    try {
-      const list = await getPatients();
-      setPatients(Array.isArray(list) ? list : []);
-    } catch {
-      setPatients([]);
-    }
-  };
+  useEffect(() => {
+    const init = async () => {
+      const f = await getForms();
+      const p = await getPatients();
+      const d = await getAllFormData();
+      setForms(f || []);
+      setPatients(p || []);
+      setFormDataList(d || []);
+    };
+    init();
+  }, []);
 
   const loadEntries = async (formName) => {
+    if (!formName) return;
     const list = await getFormsByName(formName);
-    setEntries(Array.isArray(list) ? list : []);
+    setEntries(list || []);
   };
 
   const handleAssign = async () => {
@@ -60,130 +68,190 @@ const ManageForms = () => {
     await assignForm(selectedForm, selectedPatient);
     setMessage('✅ Formular zugewiesen');
     loadEntries(selectedForm);
+    const updatedData = await getAllFormData();
+    setFormDataList(updatedData || []);
   };
 
   const handleDelete = async (entryId) => {
     await deleteFormAssignment(entryId);
     setMessage('🗑️ Formularzuweisung gelöscht');
     loadEntries(selectedForm);
+    const updatedData = await getAllFormData();
+    setFormDataList(updatedData || []);
   };
 
-  useEffect(() => {
-    loadForms();
-    loadPatients();
-  }, []);
+  const handleReopen = async (entryId) => {
+    try {
+      await reopenForm(entryId);
+      setMessage('🔁 Formular erneut freigegeben');
+      const updatedData = await getAllFormData();
+      setFormDataList(updatedData || []);
+    } catch (err) {
+      setMessage('❌ Fehler beim erneuten Freigeben');
+    }
+  };
 
   const getPatientName = (id) => {
     return patients.find((p) => p._id === id)?.name || id;
   };
 
   return (
-    <Container maxWidth="md">
+  <Box
+    sx={{
+      minHeight: "100vh",
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "flex-start",
+      pt: 6,
+      px: 4,
+    }}
+  >
+    <Box sx={{ width: "100%", maxWidth: 1200 }}>
+      <Button
+        component={Link}
+        to="/"
+        variant="outlined"
+        startIcon={<ArrowBackIcon />}
+        sx={{ mb: 2 }}
+      >
+        Zurück
+      </Button>
+
       <Typography variant="h4" gutterBottom>
-        Manage: Formulare zuweisen
+        Formulare zuweisen
       </Typography>
 
-      <Box display="flex" gap={2} mb={4}>
-        <FormControl fullWidth>
-          <InputLabel id="form-select-label">Formular</InputLabel>
-          <Select
-            labelId="form-select-label"
-            value={selectedForm}
-            label="Formular"
-            onChange={(e) => {
-              setSelectedForm(e.target.value);
-              loadEntries(e.target.value);
-            }}
-          >
-            {forms.map((f) => (
-              <MenuItem key={f.name} value={f.name}>
-                {f.name}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
-        <FormControl fullWidth>
-          <InputLabel id="patient-select-label">Patient</InputLabel>
-          <Select
-            labelId="patient-select-label"
-            value={selectedPatient}
-            label="Patient"
-            onChange={(e) => setSelectedPatient(e.target.value)}
-          >
-            {patients.map((p) => (
-              <MenuItem key={p._id} value={p._id}>
-                {p.name}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
-        <Tooltip title="Formular zuweisen">
-          <span>
-            <Button
-              variant="contained"
-              color="success"
-              onClick={handleAssign}
-              startIcon={<SendIcon />}
-              disabled={!selectedForm || !selectedPatient}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Stack direction="row" spacing={2}>
+          {/* Formularauswahl */}
+          <FormControl fullWidth>
+            <InputLabel id="form-select-label">Formular</InputLabel>
+            <Select
+              labelId="form-select-label"
+              value={selectedForm}
+              label="Formular"
+              onChange={(e) => {
+                setSelectedForm(e.target.value);
+                loadEntries(e.target.value);
+              }}
             >
-              Zuweisen
-            </Button>
-          </span>
-        </Tooltip>
-      </Box>
+              {forms.map((f) => (
+                <MenuItem key={f.name} value={f.name}>
+                  {f.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
 
-      {message && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          {message}
-        </Alert>
-      )}
+          {/* Patientenauswahl */}
+          <FormControl fullWidth>
+            <InputLabel id="patient-select-label">Patient</InputLabel>
+            <Select
+              labelId="patient-select-label"
+              value={selectedPatient}
+              label="Patient"
+              onChange={(e) => setSelectedPatient(e.target.value)}
+            >
+              {patients.map((p) => (
+                <MenuItem key={p._id} value={p._id}>
+                  {p.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* Zuweisungsbutton */}
+          <Tooltip title="Formular zuweisen">
+            <span>
+              <Button
+                variant="contained"
+                color="success"
+                onClick={handleAssign}
+                startIcon={<SendIcon />}
+                disabled={!selectedForm || !selectedPatient}
+              >
+                Zuweisen
+              </Button>
+            </span>
+          </Tooltip>
+        </Stack>
+      </Paper>
+
+      {message && <Alert severity="info" sx={{ mb: 2 }}>{message}</Alert>}
+
+      <Divider sx={{ my: 2 }} />
 
       <Typography variant="h5" gutterBottom>
         Zugewiesene Formulare
       </Typography>
-      <List>
-        {entries.map((e) => (
-          <ListItem
-            key={e._id}
-            divider
-            secondaryAction={
-              <Stack direction="row" spacing={1}>
-                <Tooltip title="Formular öffnen">
-                  <Button
-                    component={Link}
-                    to={`/formular-eingabe/${e.formName}/${e.patientId}`}
-                    variant="outlined"
-                    startIcon={<OpenInNewIcon />}
-                    size="small"
-                  >
-                    Öffnen
-                  </Button>
-                </Tooltip>
-                {e.status === 'offen' && (
-                  <Tooltip title="Löschen">
-                    <IconButton
-                      onClick={() => handleDelete(e._id)}
-                      color="error"
+
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableCell>Formularname</TableCell>
+            <TableCell>Patientenname</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell>Updatedatum</TableCell>
+            <TableCell>Aktion</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {formDataList.map((e) => (
+            <TableRow key={e._id}>
+              <TableCell>{e.formName}</TableCell>
+              <TableCell>{getPatientName(e.patientId)}</TableCell>
+              <TableCell>{e.status}</TableCell>
+              <TableCell>{new Date(e.updatedAt).toLocaleString()}</TableCell>
+              <TableCell>
+                <Stack direction="row" spacing={1}>
+                  <Tooltip title="Formular öffnen">
+                    <Button
+                      component={Link}
+                      to={`/formular/${e.formName}/${e.patientId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      variant="outlined"
+                      startIcon={<OpenInNewIcon />}
                       size="small"
                     >
-                      <DeleteIcon />
-                    </IconButton>
+                      Öffnen
+                    </Button>
                   </Tooltip>
-                )}
-              </Stack>
-            }
-          >
-            <ListItemText
-              primary={`Patient: ${getPatientName(e.patientId)}`}
-              secondary={`Formular: ${e.formName} – Status: ${e.status}`}
-            />
-          </ListItem>
-        ))}
-      </List>
-    </Container>
-  );
+
+                  {e.status === 'offen' && (
+                    <Tooltip title="Löschen">
+                      <IconButton
+                        onClick={() => handleDelete(e._id)}
+                        color="error"
+                        size="small"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+
+                  {e.status === 'freigegeben' && (
+                    <Tooltip title="Erneut freigeben">
+                      <Button
+                        onClick={() => handleReopen(e._id)}
+                        color="warning"
+                        variant="outlined"
+                        size="small"
+                      >
+                        Freigeben
+                      </Button>
+                    </Tooltip>
+                  )}
+                </Stack>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Box>
+  </Box>
+);
+
 };
 
 export default ManageForms;

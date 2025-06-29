@@ -87,5 +87,16 @@ router.delete('/assignment/:id', async (req, res) => {
   }
 });
 
+// Alle Formulardaten abrufen
+router.get('/allFormData', async (req, res) => {
+  try {
+    const list = await FormData.find().sort({ updatedAt: -1 });
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 
 module.exports = router;
