@@ -1,5 +1,8 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
+
 
 import {
   Box,
@@ -29,6 +32,8 @@ const UserForm = () => {
   const [status, setStatus] = useState("neu");
   const [updatedAt, setUpdatedAt] = useState(null);
   const sigRef = useRef();
+  const printRef = useRef();
+
   const signatureLoaded = useRef(false); // NEU
 
   useEffect(() => {
@@ -116,6 +121,67 @@ const UserForm = () => {
   }
 };
 
+const handleDownloadPDF = async () => {
+  const input = printRef.current;
+  if (!input) return;
+
+  const canvas = await html2canvas(input, { scale: 2 });
+  const imgData = canvas.toDataURL('image/png');
+  const pdf = new jsPDF('p', 'mm', 'a4');
+
+  // Maße
+  const margin = 20; // 20 mm = 2 cm
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const usableWidth = pageWidth - 2 * margin;
+
+  // Bild berechnen
+  const imgProps = pdf.getImageProperties(imgData);
+  const imgWidth = usableWidth;
+  const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+
+  // Y-Position so setzen, dass oben auch 2 cm Rand ist:
+  const x = margin;
+  const y = margin;
+
+  // Bild einfügen mit Abstand zum Rand
+  pdf.addImage(imgData, 'PNG', x, y, imgWidth, imgHeight);
+
+  pdf.save(`${formName}-${patientName}.pdf`);
+};
+
+
+  const handlePrint = async () => {
+    const input = printRef.current;
+    if (!input) return;
+
+    const canvas = await html2canvas(input, { scale: 2 });
+    const imgData = canvas.toDataURL('image/png');
+    const pdf = new jsPDF('p', 'mm', 'a4');
+
+    const imgProps = pdf.getImageProperties(imgData);
+    const pdfWidth = pdf.internal.pageSize.getWidth() - 40; // 2 cm Rand
+    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+    pdf.addImage(imgData, 'PNG', 20, 20, pdfWidth, pdfHeight);
+
+    // PDF als Blob erzeugen
+    const pdfBlob = pdf.output('blob');
+
+    // Neues Fenster mit Blob-URL öffnen und Druckdialog auslösen
+    const blobUrl = URL.createObjectURL(pdfBlob);
+    const printWindow = window.open(blobUrl);
+    if (printWindow) {
+      printWindow.onload = () => {
+        printWindow.focus();
+        printWindow.print();
+      };
+    } else {
+      console.error("❌ Konnte Druckfenster nicht öffnen");
+    }
+  };
+
+
 
   const isEditable = status !== "freigegeben";
 
@@ -145,12 +211,22 @@ const UserForm = () => {
             <Button variant="contained" onClick={handleSubmit} color="success" disabled={!isEditable}>
               ✅ Freigeben
             </Button>
+            <Button variant="outlined" onClick={handleDownloadPDF} color="secondary">
+              📄 PDF
+            </Button>
+          <Button variant="outlined" onClick={handlePrint} color="secondary">
+            🖨️ Drucken
+          </Button>
+
           </Box>
         </Box>
 
         <Divider sx={{ mb: 3 }} />
 
-        <Box>{parseForm(formText, values, handleChange, sigRef, !isEditable)}</Box>
+        <Box ref={printRef}>
+          {parseForm(formText, values, handleChange, sigRef, !isEditable)}
+        </Box>
+
       </Paper>
     </Box>
   );
