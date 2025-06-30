@@ -6,7 +6,7 @@ require('dotenv').config();
 
 const examples = [
   {
-    name: 'einwilligung-generell',
+    name: 'Einwilligung',
     text: `# Hauptüberschrift
 
 ## Abschnitt
@@ -29,6 +29,33 @@ Unterschrift: [Signature unterschrift]
 | Anna     | 12.01.2000   | ✅            |
 | ...      | ...          | ...          |
 [/Tabelle]`
+
+  },{
+    name: 'Patientenfragebogen',
+    text: `# Patientenfragebogen
+            Name: [Textfeld name]  
+            Geburtstag: [Datum geburt]  
+
+            ## Fachbereichsauswahl:
+            Fachbereich: [Select fachbereich]  
+            - Orthopädie  
+            - Neurologie  
+            - Allgemeinmedizin  
+
+            ## Bitte beschreiben Sie Ihre Beschwerden: 
+            Beschreibung: [Textarea beschreibung]
+
+            ## Wie stark sind Ihre Schmerzen aktuell? 
+            Schmerzgrad: [Radio schmerzgrad]  
+            - Kein Schmerz  
+            - Leicht  
+            - Mittel  
+            - Stark
+
+            Ich bestätige, dass ich die Informationen wahrheitsgemäß ausgefüllt habe.  
+            [Checkbox zustimmung] Ich stimme zu.
+
+            [Signature unterschrift]`
 
   }
 ];
