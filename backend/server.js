@@ -7,6 +7,8 @@ const adminRoutes = require('./routes/admin');
 const manageRoutes = require('./routes/manage');
 const userRoutes = require('./routes/user');
 const patientRoutes = require('./routes/patient'); // ✅ hinzugefügt
+const adminFormats = require('./routes/adminFormats');
+const adminPrints = require('./routes/adminPrints');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -18,6 +20,8 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/manage', manageRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/patients', patientRoutes); // ✅ hinzugefügt
+app.use('/api/admin/formats', adminFormats);
+app.use('/api/admin/prints', adminPrints);
 
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,

@@ -21,14 +21,12 @@ Geburtstag: [Datum geburt]
 ### Zustimmung
 Ich stimme zu: [Checkbox zustimmung]
 
-Unterschrift: [Signature unterschrift]
+[Tabelle Text | Name | Geburtstag | Zustimmung ]
+- 1. Eintrag | [Textfeld name_1] | [Datum geburt_1] | [Checkbox zustimmung_1]
+- 2. Eintrag | [Textfeld name_2] | [Datum geburt_2] | [Checkbox zustimmung_2]
+- 3. Eintrag | [Textfeld name_3] | [Datum geburt_3] | [Checkbox zustimmung_3]
 
-[Tabelle]
-| Name     | Geburtsdatum | Einwilligung |
-|----------|--------------|--------------|
-| Anna     | 12.01.2000   | ✅            |
-| ...      | ...          | ...          |
-[/Tabelle]`
+Unterschrift: [Signature unterschrift]`
 
   },{
     name: 'Patientenfragebogen',

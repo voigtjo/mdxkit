@@ -12,6 +12,17 @@ export const getFormForPatient = async (formName, patientId) => {
   }
 };
 
+export const saveFormData = async (id, data, signature) => {
+  try {
+    console.log("[saveFormData] id=", id, "data=", data, "signaturePreview=", signature?.substring(0, 50));
+    const res = await axios.put(`${API}/save/${id}`, { data, signature });
+    return res.data;
+  } catch (err) {
+    console.error("❌ [saveFormData] Fehler beim Speichern:", err);
+    throw err;
+  }
+};
+
 export const submitForm = async (id, data, signature) => {
   try {
     console.log("[submitForm] id=", id, "data=", data, "signaturePreview=", signature?.substring(0, 50));
@@ -23,16 +34,41 @@ export const submitForm = async (id, data, signature) => {
   }
 };
 
-export const saveFormData = async (id, data, signature) => {
+// ✅ Formulardaten für Test laden
+export const getFormForTest = async (formName) => {
   try {
-    console.log("[saveFormData] id=", id, "data=", data, "signaturePreview=", signature?.substring(0, 50));
-    const res = await axios.put(`${API}/save/${id}`, { data, signature });
+    const res = await axios.get(`${API}/form-test/${formName}`);
     return res.data;
   } catch (err) {
-    console.error("❌ [saveFormData] Fehler beim Speichern:", err);
+    console.error("❌ [getFormForTest] Fehler:", err);
     throw err;
   }
 };
+
+// ✅ Formular im Testmodus speichern
+export const saveFormDataTest = async (id, data, signature) => {
+  try {
+    console.log("[saveFormDataTest] id=", id, "data=", data, "signaturePreview=", signature?.substring(0, 50));
+    const res = await axios.put(`${API}/save-test/${id}`, { data, signature });
+    return res.data;
+  } catch (err) {
+    console.error("❌ [saveFormDataTest] Fehler beim Speichern (TEST):", err);
+    throw err;
+  }
+};
+
+// ✅ Formular im Testmodus absenden
+export const submitFormTest = async (id, data, signature) => {
+  try {
+    console.log("[submitFormTest] id=", id, "data=", data, "signaturePreview=", signature?.substring(0, 50));
+    const res = await axios.post(`${API}/submit-test/${id}`, { data, signature });
+    return res.data;
+  } catch (err) {
+    console.error("❌ [submitFormTest] Fehler beim Abschicken (TEST):", err);
+    throw err;
+  }
+};
+
 
 export const getPatient = async (id) => {
   try {

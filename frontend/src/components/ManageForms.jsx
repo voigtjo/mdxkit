@@ -198,7 +198,10 @@ const ManageForms = () => {
         <TableBody>
           {formDataList.map((e) => (
             <TableRow key={e._id}>
-              <TableCell>{e.formName}</TableCell>
+              <TableCell>
+                {e.formName} <Typography component="span" variant="caption" color="text.secondary">(v{e.version})</Typography>
+              </TableCell>
+
               <TableCell>{getPatientName(e.patientId)}</TableCell>
               <TableCell>{e.status}</TableCell>
               <TableCell>{new Date(e.updatedAt).toLocaleString()}</TableCell>

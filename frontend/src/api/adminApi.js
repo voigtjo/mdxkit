@@ -28,6 +28,14 @@ export const getFormVersionText = async (formName, version) => {
   return res.data;
 };
 
+export const assignTemplatesToForm = async (formName, formFormatId, formPrintId) => {
+  const res = await axios.put(`${API}/forms/${formName}/assign-templates`, {
+    formFormatId,
+    formPrintId
+  });
+  return res.data;
+};
+
 
 
 

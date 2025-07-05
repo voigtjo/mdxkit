@@ -38,6 +38,22 @@ const Home = () => {
           >
             Formularzuweisung
           </Button>
+          <Button
+            component={Link}
+            to="/admin/format"
+            variant="outlined"
+            color="secondary"
+          >
+            Formatvorlagen verwalten
+          </Button>
+          <Button
+            component={Link}
+            to="/admin/print"
+            variant="outlined"
+            color="secondary"
+          >
+            Druckvorlagen verwalten
+          </Button>
         </Box>
       </Box>
     </Box>

@@ -8,6 +8,8 @@ const formSchema = new mongoose.Schema({
   currentVersionId: { type: mongoose.Schema.Types.ObjectId, ref: 'FormVersion' },
   validVersionId: { type: mongoose.Schema.Types.ObjectId, ref: 'FormVersion' },
   updatedAt: { type: Date, default: Date.now },
+  formFormatId: { type: mongoose.Schema.Types.ObjectId, ref: 'FormFormat' },
+  formPrintId: { type: mongoose.Schema.Types.ObjectId, ref: 'FormPrint' },
 });
 
 module.exports = mongoose.model('Form', formSchema);
