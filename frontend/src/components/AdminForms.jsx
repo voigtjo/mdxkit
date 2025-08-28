@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -29,9 +29,13 @@ import {
 } from '@/api/adminApi';
 import { getFormats } from '@/api/formatApi';
 import { getPrints } from '@/api/printApi';
+import { useTenant } from '@/context/TenantContext';
 
 const AdminForms = () => {
   const navigate = useNavigate();
+  const { tenantId: tenantFromUrl } = useParams();
+  const { tenantId: tenantFromCtx } = useTenant();
+  const tid = tenantFromUrl || tenantFromCtx || '';
 
   const [forms, setForms] = useState([]);
   const [name, setName] = useState('');
@@ -53,6 +57,7 @@ const AdminForms = () => {
   const loadTemplates = async () => {
     const [formats, printList] = await Promise.all([getFormats(), getPrints()]);
     setFormats(formats);
+    setPrints(printList);
     console.log("📄 Geladene Formate:", formats);
   };
 
@@ -61,13 +66,10 @@ const AdminForms = () => {
     return match ? match.name : '–';
   };
 
-
-
   const getPrintName = (id) => {
     const match = prints.find(p => p._id === id);
     return match ? match.name : '–';
   };
-
 
   const handleUpload = async () => {
     if (!name || !text) return;
@@ -137,9 +139,7 @@ const AdminForms = () => {
       const meta = forms.find((f) => f.name === formName);
       console.log("🧩 Formular-Metadaten", meta);
 
-      const isValid = meta?.validVersion === version;
       const isReadonly = mode === 'valid';
-
       setIsReadOnly(isReadonly);
       setSelectedFormat(meta?.formFormatId || '');
       setSelectedPrint(meta?.formPrintId || '');
@@ -176,9 +176,15 @@ const AdminForms = () => {
 
   return (
     <Container maxWidth="lg">
-      <Button variant="outlined" onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+      {/* 👇 Tenant-bewusster Zurück-Button */}
+      <Button
+        variant="outlined"
+        onClick={() => navigate(`/tenant/${encodeURIComponent(tid)}`)}
+        sx={{ mb: 2 }}
+      >
         ← Zurück
       </Button>
+
       <Typography variant="h4" gutterBottom>
         Formular bearbeiten
       </Typography>
@@ -188,7 +194,7 @@ const AdminForms = () => {
           Version {selectedVersion} von "{name}" geladen – Gültig:{' '}
           {forms.find(f => f.name === name)?.validVersion === selectedVersion ? 'Ja' : 'Nein'} – Letztes Update:{' '}
           {forms.find(f => f.name === name)?.updatedAt
-            ? new Date(forms.find(f => f.name === name).updatedAt).toLocaleString()
+            ? new Date(forms.find(f.name === name).updatedAt).toLocaleString()
             : '–'}
         </Typography>
       )}

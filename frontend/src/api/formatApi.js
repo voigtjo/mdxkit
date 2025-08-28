@@ -1,17 +1,20 @@
-import axios from 'axios';
-const API = '/api/admin/formats';
+// src/api/formatApi.js
+import api from './axios';
+
+const formatsAPI = '/admin/formats';
 
 export const getFormats = async () => {
-  const res = await axios.get(API);
-  return res.data;
+  const res = await api.get(`${formatsAPI}`);
+  return res.data; // Array<{ _id, name, text, status, updatedAt, ... }>
 };
 
 export const uploadFormat = async (name, text) => {
-  const res = await axios.post(API, { name, text });
+  const res = await api.post(`${formatsAPI}`, { name, text });
+  // { message, mode: 'create'|'update', id }
   return res.data;
 };
 
 export const releaseFormat = async (id) => {
-  const res = await axios.put(`${API}/release/${id}`);
-  return res.data;
+  const res = await api.put(`${formatsAPI}/release/${encodeURIComponent(id)}`);
+  return res.data; // { message, updated }
 };

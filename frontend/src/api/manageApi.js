@@ -1,40 +1,40 @@
 // src/api/manageApi.js
-import axios from 'axios';
+import api from './axios';
 
-const API = '/api/manage';
+const manageAPI = '/manage';
 
 export const assignForm = async (formName, patientId) => {
-  const res = await axios.post(`${API}/assign`, { formName, patientId });
+  const res = await api.post(`${manageAPI}/assign`, { formName, patientId });
   return res.data;
 };
 
 export const acceptForm = async (id) => {
-  const res = await axios.post(`${API}/accept/${id}`);
+  const res = await api.post(`${manageAPI}/accept/${id}`);
   return res.data;
 };
 
 export const reopenForm = async (id) => {
-  const res = await axios.post(`${API}/reopen/${id}`);
+  const res = await api.post(`${manageAPI}/reopen/${id}`);
   return res.data;
 };
 
 export const getFormsByName = async (formName) => {
-  const res = await axios.get(`${API}/byForm/${formName}`);
+  const res = await api.get(`${manageAPI}/byForm/${encodeURIComponent(formName)}`);
   return res.data;
 };
 
 export const getFormsByPatient = async (patientId) => {
-  const res = await axios.get(`${API}/byPatient/${patientId}`);
+  const res = await api.get(`${manageAPI}/byPatient/${encodeURIComponent(patientId)}`);
   return res.data;
 };
 
 export const deleteFormAssignment = async (entryId) => {
-  const res = await axios.delete(`${API}/assignment/${entryId}`);
+  const res = await api.delete(`${manageAPI}/assignment/${entryId}`);
   return res.data;
 };
 
 // 🆕 ALLE Formulareinträge abrufen
 export const getAllFormData = async () => {
-  const res = await axios.get(`${API}/allFormData`);
+  const res = await api.get(`${manageAPI}/allFormData`);
   return res.data;
 };

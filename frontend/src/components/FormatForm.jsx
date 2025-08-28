@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Box,
   Button,
   Container,
   Divider,
@@ -14,15 +13,19 @@ import {
   TableHead,
   TableRow
 } from '@mui/material';
-import { useLocation, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { useLocation, Link, useParams } from 'react-router-dom';
+
+import { getFormats, uploadFormat, releaseFormat } from '@/api/formatApi';
+import { getPrints, uploadPrint, releasePrint } from '@/api/printApi';
+import { useTenant } from '@/context/TenantContext';
 
 const FormatForm = () => {
   const location = useLocation();
-  const navigate = useNavigate();
+  const { tenantId: tenantFromUrl } = useParams();
+  const { tenantId: tenantFromCtx } = useTenant();
+  const tid = tenantFromUrl || tenantFromCtx || '';
 
   const isPrint = location.pathname.includes('/print');
-  const basePath = isPrint ? '/api/admin/prints' : '/api/admin/formats';
   const label = isPrint ? 'Druckvorlage' : 'Formatvorlage';
 
   const [name, setName] = useState('');
@@ -33,8 +36,8 @@ const FormatForm = () => {
 
   const loadTemplates = async () => {
     try {
-      const res = await axios.get(basePath);
-      setTemplates(res.data);
+      const list = isPrint ? await getPrints() : await getFormats();
+      setTemplates(list || []);
     } catch (err) {
       console.error(`❌ Fehler beim Laden der ${label}n`, err);
     }
@@ -43,9 +46,12 @@ const FormatForm = () => {
   const handleUpload = async () => {
     if (!name.trim() || !text.trim()) return;
     try {
-      const res = await axios.post(basePath, { name: name.trim(), text });
-      setMessage(`✅ ${label} ${res.data.mode === 'update' ? 'aktualisiert' : 'gespeichert'}`);
-      setSelectedId(res.data.id);
+      const res = isPrint
+        ? await uploadPrint(name.trim(), text)
+        : await uploadFormat(name.trim(), text);
+
+      setMessage(`✅ ${label} ${res.mode === 'update' ? 'aktualisiert' : 'gespeichert'}`);
+      setSelectedId(res.id);
       await loadTemplates();
     } catch (err) {
       console.error(`❌ Fehler beim Speichern der ${label}`, err);
@@ -56,7 +62,11 @@ const FormatForm = () => {
   const handleRelease = async () => {
     if (!selectedId) return;
     try {
-      await axios.put(`${basePath}/release/${selectedId}`);
+      if (isPrint) {
+        await releasePrint(selectedId);
+      } else {
+        await releaseFormat(selectedId);
+      }
       setMessage(`✅ ${label} freigegeben`);
       await loadTemplates();
     } catch (err) {
@@ -81,11 +91,20 @@ const FormatForm = () => {
 
   useEffect(() => {
     loadTemplates();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPrint]);
+
+  const backLink = tid ? `/tenant/${encodeURIComponent(tid)}` : '/';
 
   return (
     <Container maxWidth="lg">
-      <Button variant="outlined" onClick={() => navigate(-1)} sx={{ mb: 2 }}>
+      {/* 🔙 Tenant-bewusster Zurück-Button */}
+      <Button
+        component={Link}
+        to={backLink}
+        variant="outlined"
+        sx={{ mb: 2 }}
+      >
         ← Zurück
       </Button>
 
