@@ -1,28 +1,46 @@
-// src/api/axios.js
+// frontend/src/api/axios.js
 import axios from 'axios';
 
-const api = axios.create({
-  baseURL: '/api', // bleibt
-  withCredentials: false,
+/**
+ * Public (no tenant scope) → hits /api/*
+ * Use for: GET /api/tenants, public info, etc.
+ */
+export const publicApi = axios.create({
+  baseURL: '/api',
 });
 
-// Prefix-Regeln: welche Pfade NICHT prefixed werden
-const NO_PREFIX = [/^\/tenants\b/, /^\/sys\b/, /^\/auth\b/, /^\/health\b/, /^\/tenant\/[^/]+\b/];
+/**
+ * System scope (no tenant) → hits /api/sys/*
+ * Use for: GET/POST /api/sys/tenants, /api/sys/roles, etc.
+ */
+export const sysApi = axios.create({
+  baseURL: '/api/sys',
+});
 
-api.interceptors.request.use((config) => {
-  const tenantId = localStorage.getItem('tenantId') || '';
+/**
+ * Tenant scope → prefixes every request with /api/tenant/:tenantId
+ * and adds x-tenant-id header.
+ * Use for: /users, /groups, /form, /manage, /admin (tenant endpoints)
+ *
+ * IMPORTANT: Pass only relative paths like "/users", "/groups", etc.
+ */
+export const tenantApi = axios.create();
 
-  // Header weiterhin mitschicken (Backwards-Compat / Logging)
-  if (tenantId) config.headers['x-tenant-id'] = tenantId;
+tenantApi.interceptors.request.use((config) => {
+  const tid = (typeof window !== 'undefined' && window.localStorage)
+    ? (localStorage.getItem('tenantId') || '')
+    : '';
 
-  const url = config.url || '';
-  const skip = NO_PREFIX.some((re) => re.test(url));
-  if (!skip) {
-    // automatisch /tenant/<id> voranstellen
-    if (!tenantId) throw new Error('No tenant selected');
-    config.url = `/tenant/${encodeURIComponent(tenantId)}${url}`;
-  }
+  // Build tenant-scoped URL safely
+  const path = (config.url || '').startsWith('/') ? config.url : `/${config.url || ''}`;
+  config.url = `/api/tenant/${encodeURIComponent(tid)}${path}`;
+
+  // Ensure headers object exists
+  config.headers = config.headers || {};
+  if (tid) config.headers['x-tenant-id'] = tid;
+
   return config;
 });
 
-export default api;
+// Default export remains tenant-scoped for backward compatibility
+export default tenantApi;

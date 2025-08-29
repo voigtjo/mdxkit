@@ -1,34 +1,37 @@
+// backend/models/user.js
 const mongoose = require('mongoose');
-const tenantPlugin = require('../plugins/tenantPlugin');
 
-/**
- * Zukünftige, generische User (Patienten, Operator, Admins, ...)
- * Für Patienten reicht zunächst: displayName, email (optional), status.
- * memberships: später nutzbar für rollenbasierte Auth je Tenant.
- */
-const membershipSchema = new mongoose.Schema({
-  tenantId: { type: String, required: true },
-  roles: { type: [String], default: [] }, // z.B. ['FormDataEditor']
-}, { _id: false });
+const membershipSchema = new mongoose.Schema(
+  {
+    groupId: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', required: true },
+    roles:   { type: [String], default: [] }, // Rollen-Keys aus Role-Collection (ohne Sys/TenantAdmin)
+  },
+  { _id: false }
+);
 
-const userSchema = new mongoose.Schema({
-  displayName: { type: String, required: true },   // vormals patient.name
-  email: { type: String, default: '' },
-  status: { type: String, enum: ['active', 'suspended'], default: 'active' },
+const userSchema = new mongoose.Schema(
+  {
+    // HINWEIS: Für reguläre Tenant-User bleibt tenantId Pflicht (tenantPlugin).
+    // SystemAdmins werden NICHT über tenant-scope API verwaltet (separater Systembereich).
+    tenantId: { type: String, required: true, index: true },
 
-  // spätere Auth (Hash) optional:
-  passwordHash: { type: String },
+    displayName: { type: String, required: true, trim: true },
+    email: { type: String, default: '', trim: true },
+    status: { type: String, enum: ['active','suspended','deleted'], default: 'active' },
 
-  // Rollen je Tenant (für später):
-  memberships: { type: [membershipSchema], default: [] },
+    // Admin-Flags
+    isSystemAdmin: { type: Boolean, default: false }, // nur via /api/sys/... setzbar
+    isTenantAdmin: { type: Boolean, default: false }, // tenant-scope: ja, aber mit Regeln
 
-  // Freie Felder für Profil/Medical:
-  profile: { type: mongoose.Schema.Types.Mixed, default: {} },
+    // Defaultgruppe (gehört zu memberships)
+    defaultGroupId: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', default: null },
 
-  updatedAt: { type: Date, default: Date.now },
-}, { timestamps: { createdAt: true, updatedAt: true } });
+    // Mitgliedschaften mit rollenbezogener Zuweisung
+    memberships: { type: [membershipSchema], default: [] },
 
-userSchema.plugin(tenantPlugin);
-userSchema.index({ tenantId: 1, status: 1, 'memberships.tenantId': 1 });
+    profile: { type: Object, default: {} },
+  },
+  { timestamps: true }
+);
 
 module.exports = mongoose.model('User', userSchema);

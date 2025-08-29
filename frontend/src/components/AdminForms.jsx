@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+// src/components/AdminForms.jsx
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Box,
@@ -18,7 +19,19 @@ import {
   Select,
   FormControl,
   InputLabel,
+  Chip,
+  IconButton,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Checkbox,
+  FormControlLabel,
+  OutlinedInput,
 } from '@mui/material';
+import { Edit as EditIcon } from '@mui/icons-material';
+
 import {
   getForms,
   uploadForm,
@@ -30,6 +43,11 @@ import {
 import { getFormats } from '@/api/formatApi';
 import { getPrints } from '@/api/printApi';
 import { useTenant } from '@/context/TenantContext';
+
+// Sichtbarkeits-API (global / gruppen)
+import { getAvailableForms, updateFormMeta } from '@/api/formApi';
+// Gruppenliste für Labeling & Auswahl
+import { listGroups } from '@/api/groupApi';
 
 const AdminForms = () => {
   const navigate = useNavigate();
@@ -49,16 +67,53 @@ const AdminForms = () => {
   const [selectedFormat, setSelectedFormat] = useState('');
   const [selectedPrint, setSelectedPrint] = useState('');
 
+  // Gruppen für Sichtbarkeit
+  const [groups, setGroups] = useState([]);
+
+  // Dialog-Status für Sichtbarkeit
+  const [visOpen, setVisOpen] = useState(false);
+  const [visEditing, setVisEditing] = useState(null); // {_id, name, title, isGlobal, groupIds}
+  const [visIsGlobal, setVisIsGlobal] = useState(true);
+  const [visGroupIds, setVisGroupIds] = useState([]);
+  const [visError, setVisError] = useState('');
+
   const loadForms = async () => {
-    const list = await getForms();
-    setForms(list || []);
+    // 1) Admin-Formliste (Versionen, Templates, etc.)
+    // 2) Sichtbarkeits-Meta via /form/available (liefert isGlobal/groupIds + _id)
+    const [list, available] = await Promise.all([
+      getForms(),
+      getAvailableForms(), // als Admin kommt hier der komplette Bestand zurück (serverseitige Policy)
+    ]);
+
+    const visByName = new Map((available || []).map(f => [f.name, f]));
+    const merged = (list || []).map(f => {
+      const v = visByName.get(f.name);
+      return {
+        // zuerst _id aus Adminliste, Fallback aus /available
+        _id: f._id || v?._id,
+        ...f,
+        isGlobal: v?.isGlobal ?? true,
+        groupIds: v?.groupIds ?? [],
+        status: v?.status ?? f.status,
+      };
+    });
+
+    setForms(merged);
   };
 
   const loadTemplates = async () => {
     const [formats, printList] = await Promise.all([getFormats(), getPrints()]);
     setFormats(formats);
     setPrints(printList);
-    console.log("📄 Geladene Formate:", formats);
+  };
+
+  const loadGroups = async () => {
+    try {
+      const data = await listGroups();
+      setGroups(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const getFormatName = (id) => {
@@ -70,6 +125,13 @@ const AdminForms = () => {
     const match = prints.find(p => p._id === id);
     return match ? match.name : '–';
   };
+
+  const groupOptions = useMemo(
+    () => groups.map(g => ({ value: g._id, label: g.name })),
+    [groups]
+  );
+
+  const labelForGroup = (id) => groupOptions.find(go => go.value === id)?.label || id;
 
   const handleUpload = async () => {
     if (!name || !text) return;
@@ -137,7 +199,6 @@ const AdminForms = () => {
       setSelectedVersion(version);
 
       const meta = forms.find((f) => f.name === formName);
-      console.log("🧩 Formular-Metadaten", meta);
 
       const isReadonly = mode === 'valid';
       setIsReadOnly(isReadonly);
@@ -163,9 +224,43 @@ const AdminForms = () => {
     setSelectedPrint('');
   };
 
+  // Sichtbarkeit öffnen/speichern
+  const openVisibilityDialog = (formRow) => {
+    setVisEditing(formRow);
+    setVisIsGlobal(!!formRow.isGlobal);
+    setVisGroupIds(Array.isArray(formRow.groupIds) ? formRow.groupIds : []);
+    setVisError('');
+    setVisOpen(true);
+  };
+
+  const saveVisibility = async () => {
+    try {
+      if (!visEditing) return;
+
+      // Fallback: _id ggf. aus aktuellem forms-State per name nachschlagen
+      const effectiveId = visEditing._id || (forms.find(x => x.name === visEditing.name)?._id);
+      if (!effectiveId) {
+        setVisError('Kein gültiges Formular-Objekt (._id fehlt). Bitte neu laden.');
+        return;
+      }
+
+      if (!visIsGlobal && (!Array.isArray(visGroupIds) || visGroupIds.length === 0)) {
+        setVisError('Bitte mindestens eine Gruppe auswählen oder „Global“ aktivieren.');
+        return;
+      }
+      await updateFormMeta(effectiveId, { isGlobal: visIsGlobal, groupIds: visGroupIds });
+      setVisOpen(false);
+      await loadForms();
+    } catch (e) {
+      console.error(e);
+      setVisError(e?.response?.data?.error || e.message);
+    }
+  };
+
   useEffect(() => {
     loadForms();
     loadTemplates();
+    loadGroups();
   }, []);
 
   useEffect(() => {
@@ -193,9 +288,10 @@ const AdminForms = () => {
         <Typography variant="body1" sx={{ mb: 2 }} color="secondary">
           Version {selectedVersion} von "{name}" geladen – Gültig:{' '}
           {forms.find(f => f.name === name)?.validVersion === selectedVersion ? 'Ja' : 'Nein'} – Letztes Update:{' '}
-          {forms.find(f => f.name === name)?.updatedAt
-            ? new Date(forms.find(f.name === name).updatedAt).toLocaleString()
-            : '–'}
+          {(() => {
+            const f = forms.find(f => f.name === name);
+            return f?.updatedAt ? new Date(f.updatedAt).toLocaleString() : '–';
+          })()}
         </Typography>
       )}
 
@@ -299,6 +395,7 @@ const AdminForms = () => {
             <TableCell>Arbeits-Version gültig?</TableCell>
             <TableCell>Formatvorlage</TableCell>
             <TableCell>Druckvorlage</TableCell>
+            <TableCell>Sichtbarkeit</TableCell>
             <TableCell>Updatedatum</TableCell>
             <TableCell>Aktion</TableCell>
           </TableRow>
@@ -306,7 +403,7 @@ const AdminForms = () => {
         <TableBody>
           {forms.map((f, i) => (
             <TableRow
-              key={i}
+              key={f._id || i}
               selected={f.name === name && (f.validVersion === selectedVersion || f.currentVersion === selectedVersion)}
             >
               <TableCell>{f.name}</TableCell>
@@ -314,7 +411,18 @@ const AdminForms = () => {
               <TableCell>{f.currentVersion || '–'}</TableCell>
               <TableCell>{f.validVersion === f.currentVersion ? 'ja' : 'nein'}</TableCell>
               <TableCell>{getFormatName(f.formFormatId)}</TableCell>
-              <TableCell>{f.formPrintId || '–'}</TableCell>
+              <TableCell>{getPrintName(f.formPrintId)}</TableCell>
+              <TableCell>
+                {f.isGlobal ? (
+                  <Chip size="small" label="global" />
+                ) : (
+                  <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                    {(f.groupIds || []).map(id => (
+                      <Chip key={id} size="small" label={labelForGroup(id)} />
+                    ))}
+                  </Stack>
+                )}
+              </TableCell>
               <TableCell>{f.updatedAt ? new Date(f.updatedAt).toLocaleString() : '–'}</TableCell>
               <TableCell>
                 <Stack direction="row" spacing={1}>
@@ -347,6 +455,11 @@ const AdminForms = () => {
                       Testen
                     </Button>
                   </a>
+                  <Tooltip title="Sichtbarkeit ändern">
+                    <IconButton size="small" onClick={() => openVisibilityDialog(f)}>
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                 </Stack>
               </TableCell>
             </TableRow>
@@ -354,6 +467,56 @@ const AdminForms = () => {
         </TableBody>
 
       </Table>
+
+      {/* Dialog Sichtbarkeit */}
+      <Dialog open={visOpen} onClose={() => setVisOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Formular-Sichtbarkeit</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {visEditing && (
+              <Stack>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Formular: <strong>{visEditing.title || visEditing.name}</strong>
+                </Typography>
+                <Typography variant="caption" color="text.secondary"><code>{visEditing.name}</code></Typography>
+              </Stack>
+            )}
+
+            <FormControlLabel
+              control={<Checkbox checked={visIsGlobal} onChange={e => setVisIsGlobal(e.target.checked)} />}
+              label="Global (für alle Gruppen im Tenant sichtbar)"
+            />
+
+            <FormControl fullWidth disabled={visIsGlobal}>
+              <InputLabel id="groups-label">Gruppen</InputLabel>
+              <Select
+                labelId="groups-label"
+                multiple
+                value={visGroupIds}
+                onChange={(e) => setVisGroupIds(e.target.value)}
+                input={<OutlinedInput label="Gruppen" />}
+                renderValue={(selected) => (
+                  <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                    {(selected || []).map(id => (
+                      <Chip key={id} size="small" label={labelForGroup(id)} />
+                    ))}
+                  </Stack>
+                )}
+              >
+                {groupOptions.map(go => (
+                  <MenuItem key={go.value} value={go.value}>{go.label}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {visError && <Typography color="error">{visError}</Typography>}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setVisOpen(false)}>Abbrechen</Button>
+          <Button variant="contained" onClick={saveVisibility}>Speichern</Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };

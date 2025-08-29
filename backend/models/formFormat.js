@@ -1,14 +1,23 @@
+// backend/models/formFormat.js
 const mongoose = require('mongoose');
-const tenantPlugin = require('../plugins/tenantPlugin');
 
-const formFormatSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  text: { type: String, required: true },
-  status: { type: String, enum: ['neu', 'freigegeben'], default: 'neu' },
-  updatedAt: { type: Date, default: Date.now },
-});
+const formFormatSchema = new mongoose.Schema(
+  {
+    tenantId: { type: String, required: true, index: true },
+    name:     { type: String, required: true, trim: true },
 
-formFormatSchema.plugin(tenantPlugin);
+    // Inhalt/Template (Text/JSON – passe bei Bedarf an)
+    text: { type: String, default: '' },
+
+    status: { type: String, enum: ['active', 'archived'], default: 'active' },
+
+    // Optional Versionierung analog zu Form (nur falls du das nutzen willst)
+    currentVersion:   { type: Number, default: 1 },
+    currentVersionId: { type: mongoose.Schema.Types.ObjectId, default: null },
+  },
+  { timestamps: true }
+);
+
 formFormatSchema.index({ tenantId: 1, name: 1 }, { unique: true });
 
 module.exports = mongoose.model('FormFormat', formFormatSchema);

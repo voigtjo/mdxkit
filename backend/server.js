@@ -1,68 +1,81 @@
+// backend/server.js
 require('dotenv').config();
 
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-// Optional: const helmet = require('helmet');
+// Optional hart machen, wenn gewünscht:
+// const helmet = require('helmet');
 
-const tenantResolver = require('./middleware/tenant');
+const tenantResolver   = require('./middleware/tenant');        // liest x-tenant-id o.ä.
+const tenantFromParam  = require('./middleware/tenantFromParam');
 
-const adminRoutes = require('./routes/admin');
-const manageRoutes = require('./routes/manage');
-const formRoutes = require('./routes/form'); // statt './routes/user'
-const usersRoutes = require('./routes/users');      // 🆕
-const adminFormats = require('./routes/adminFormats');
-const adminPrints = require('./routes/adminPrints');
-const tenantFromParam = require('./middleware/tenantFromParam');
-const tenantsPublicRoutes = require('./routes/tenants-public');
-const sysTenantsRoutes    = require('./routes/sysTenants'); 
+// Routen
+const tenantsPublicRoutes = require('./routes/tenants-public'); // /api/tenants (PUBLIC)
+const sysTenantsRoutes    = require('./routes/sysTenants');     // /api/sys/tenants (SYSTEM)
+const roleSysRoutes       = require('./routes/roles.sys');      // /api/sys/roles   (SYSTEM)
+
+const adminRoutes   = require('./routes/admin');                 // /api/tenant/:tenantId/admin
+const manageRoutes  = require('./routes/manage');                // /api/tenant/:tenantId/manage
+const formRoutes    = require('./routes/form');                  // /api/tenant/:tenantId/form
+const usersRoutes   = require('./routes/users');                 // /api/tenant/:tenantId/users
+const groupRoutes   = require('./routes/groups');                // /api/tenant/:tenantId/groups
+const adminFormats  = require('./routes/adminFormats');          // /api/tenant/:tenantId/admin/formats
+const adminPrints   = require('./routes/adminPrints');           // /api/tenant/:tenantId/admin/prints
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// --- Global middleware ---
+/* ---------------------- Global Middleware ---------------------- */
 app.set('trust proxy', 1);
 app.use(cors());
+// app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 
-
-// Health check (ohne Tenant)
+/* ---------------------- Health ---------------------- */
 app.get('/health', (_req, res) => res.status(200).send('ok'));
 
-app.use('/api/tenants', tenantsPublicRoutes);
+/* ---------------------- PUBLIC (kein Tenant) ---------------------- */
+// ⚠️ Diese Routen dürfen NICHT durch tenantResolver laufen
+app.use('/api/tenants', tenantsPublicRoutes);   // z. B. für TenantSwitcher
+
+/* ---------------------- SYSTEM (kein Tenant) ---------------------- */
+// ⚠️ Ebenfalls VOR dem tenantResolver mounten
 app.use('/api/sys/tenants', sysTenantsRoutes);
-// --- Tenant-Resolver für alle /api-* Routen ---
-// Falls du später *öffentliche* API-Endpunkte brauchst (z. B. Login),
-// mounte die VOR dieser Zeile oder hänge sie direkt auf /public.
-app.use('/api', tenantResolver);
+app.use('/api/sys/roles',   roleSysRoutes);
 
-// NEU: URL-basierter Tenant-Scope
-app.use('/api/tenant/:tenantId/admin',  tenantFromParam, adminRoutes);
-app.use('/api/tenant/:tenantId/manage', tenantFromParam, manageRoutes);
-app.use('/api/tenant/:tenantId/form',   tenantFromParam, formRoutes);  // ✅ statt /user
-app.use('/api/tenant/:tenantId/users', tenantFromParam, usersRoutes); // ✅ richtig
-app.use('/api/tenant/:tenantId/admin/formats', tenantFromParam, adminFormats);
-app.use('/api/tenant/:tenantId/admin/prints',  tenantFromParam, adminPrints);
+/* ---------------------- TENANT-SCOPE ---------------------- */
+// Ab hier nur noch /api/tenant/* vom Resolver prüfen lassen
+// -> schützt tenantisierte APIs und stellt req.tenantId/Context bereit
+app.use('/api/tenant', tenantResolver);
 
-// 404-Fallback
+// URL-basierter Tenant-Scope (liest :tenantId in req.tenantId o.ä.)
+app.use('/api/tenant/:tenantId/admin',          tenantFromParam, adminRoutes);
+app.use('/api/tenant/:tenantId/groups',         tenantFromParam, groupRoutes);
+app.use('/api/tenant/:tenantId/manage',         tenantFromParam, manageRoutes);
+app.use('/api/tenant/:tenantId/form',           tenantFromParam, formRoutes);
+app.use('/api/tenant/:tenantId/users',          tenantFromParam, usersRoutes);
+app.use('/api/tenant/:tenantId/admin/formats',  tenantFromParam, adminFormats);
+app.use('/api/tenant/:tenantId/admin/prints',   tenantFromParam, adminPrints);
+
+/* ---------------------- 404 & Error Handling ---------------------- */
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-// Zentrale Error-Handler
 app.use((err, _req, res, _next) => {
   console.error(err);
   res.status(err.status || 500).json({ error: err.message || 'Server error' });
 });
 
-// --- DB + Start ---
+/* ---------------------- DB + Start ---------------------- */
 if (!process.env.MONGO_URI) {
-  console.error('MONGO_URI is not set'); process.exit(1);
+  console.error('MONGO_URI is not set');
+  process.exit(1);
 }
 
 mongoose.connect(process.env.MONGO_URI, {
-  // Hinweis: useNewUrlParser/useUnifiedTopology sind bei neueren Mongoose-Versionen nicht mehr nötig,
-  // schaden aber nicht. Du kannst sie weglassen, wenn du Mongoose >= 7 nutzt.
+  // Bei Mongoose >= 7 nicht mehr nötig, schadet aber nicht:
   useNewUrlParser: true,
   useUnifiedTopology: true,
 }).then(() => {
@@ -73,7 +86,7 @@ mongoose.connect(process.env.MONGO_URI, {
   process.exit(1);
 });
 
-// Graceful shutdown (optional, aber empfehlenswert)
+// Graceful shutdown
 process.on('SIGINT', async () => {
   await mongoose.connection.close();
   process.exit(0);

@@ -1,14 +1,19 @@
+// backend/models/formPrint.js
 const mongoose = require('mongoose');
-const tenantPlugin = require('../plugins/tenantPlugin');
 
-const formPrintSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  text: { type: String, required: true },
-  status: { type: String, enum: ['neu', 'freigegeben'], default: 'neu' },
-  updatedAt: { type: Date, default: Date.now },
-});
+const formPrintSchema = new mongoose.Schema(
+  {
+    tenantId: { type: String, required: true, index: true },
+    name:     { type: String, required: true, trim: true },
 
-formPrintSchema.plugin(tenantPlugin);
+    // Druckdefinition (z. B. HTML/Template)
+    text: { type: String, default: '' },
+
+    status: { type: String, enum: ['active', 'archived'], default: 'active' },
+  },
+  { timestamps: true }
+);
+
 formPrintSchema.index({ tenantId: 1, name: 1 }, { unique: true });
 
 module.exports = mongoose.model('FormPrint', formPrintSchema);
