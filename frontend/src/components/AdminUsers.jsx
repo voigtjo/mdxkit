@@ -1,6 +1,5 @@
 // frontend/src/components/AdminUsers.jsx
-// nur kleine Ergänzung: Hinweis, falls (noch) keine Rollen definiert sind
-// — REST wie gehabt —
+// Ergänzt: Spalten "Default-Gruppe" und "Rollen (A/P/O/E/R)" in der Übersicht
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -22,6 +21,27 @@ const emptyForm = {
   memberships: [],
   defaultGroupId: null,
 };
+
+/* ===== Rollen-Kürzel & Sortierreihenfolge ===== */
+const ROLE_TO_INITIAL = {
+  FormAuthor: 'A',
+  FormPublisher: 'P',
+  Operator: 'O',
+  FormDataEditor: 'E',
+  FormDataApprover: 'R', // R = Release
+};
+const ROLE_ORDER = ['FormAuthor','FormPublisher','Operator','FormDataEditor','FormDataApprover'];
+
+function roleChipsForUser(user) {
+  const roles = new Set();
+  (user?.memberships || []).forEach(m => (m.roles || []).forEach(r => roles.add(r)));
+  const sorted = Array.from(roles).sort((a,b) => ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b));
+  return sorted.map(r => ({
+    key: r,
+    initial: ROLE_TO_INITIAL[r] || (r?.[0]?.toUpperCase() || '?'),
+    title: r,
+  }));
+}
 
 export default function AdminUsers() {
   const { tenantId: tenantFromUrl } = useParams();
@@ -55,9 +75,15 @@ export default function AdminUsers() {
       setLoading(false);
     }
   };
-  useEffect(() => { load(); }, [tid]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tid]);
 
   const groupOptions = useMemo(() => groups.map(g => ({ value: g._id, label: g.name })), [groups]);
+  const groupsById = useMemo(() => {
+    const map = {};
+    (groups || []).forEach(g => { map[String(g._id)] = g; });
+    return map;
+  }, [groups]);
+
   const roleOptions  = useMemo(() => roles.map(r => ({ value: r.key, label: r.name || r.key })), [roles]);
 
   const title = useMemo(() => editingId ? 'User bearbeiten' : 'Neuen User anlegen', [editingId]);
@@ -75,7 +101,7 @@ export default function AdminUsers() {
     try {
       const detail = await getUserById(row._id);
       setForm({
-        displayName: detail.displayName || '',
+        displayName: detail.displayName || detail.name || '',
         email: detail.email || '',
         isTenantAdmin: !!detail.isTenantAdmin,
         memberships: Array.isArray(detail.memberships) ? detail.memberships : [],
@@ -130,7 +156,7 @@ export default function AdminUsers() {
   };
 
   const onDelete = async (row) => {
-    if (!window.confirm(`User „${row.name}“ wirklich löschen?`)) return;
+    if (!window.confirm(`User „${row.name || row.displayName}“ wirklich löschen?`)) return;
     try {
       await deleteUser(row._id);
       await load();
@@ -178,6 +204,9 @@ export default function AdminUsers() {
       <Stack direction="row" alignItems="center" justifyContent="space-between">
         <Typography variant="h5">Benutzerverwaltung</Typography>
         <Stack direction="row" spacing={1}>
+          <Tooltip title="Rollen-Kürzel: A=Author, P=Publisher, O=Operator, E=Editor, R=Release">
+            <Chip size="small" label="A/P/O/E/R" />
+          </Tooltip>
           <Button variant="outlined" onClick={() => navigate(`/tenant/${tid}/admin`)}>Zurück</Button>
           <Button variant="contained" startIcon={<AddIcon />} onClick={onOpenCreate}>Neu</Button>
         </Stack>
@@ -195,32 +224,53 @@ export default function AdminUsers() {
               <TableCell>Name</TableCell>
               <TableCell>E-Mail</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell>Default-Gruppe</TableCell>   {/* ⬅︎ NEU */}
+              <TableCell>Rollen</TableCell>            {/* ⬅︎ NEU */}
               <TableCell>TenantAdmin</TableCell>
               <TableCell align="right" style={{ width: 140 }}>Aktionen</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {rows.map((r) => (
-              <TableRow key={r._id} hover>
-                <TableCell>{r.name}</TableCell>
-                <TableCell>{r.email}</TableCell>
-                <TableCell><Chip size="small" label={r.status || 'active'} /></TableCell>
-                <TableCell>{r.isTenantAdmin ? <Chip size="small" label="yes" /> : <Chip size="small" label="no" />}</TableCell>
-                <TableCell align="right">
-                  <Tooltip title="Bearbeiten">
-                    <IconButton onClick={() => onOpenEdit(r)} size="small"><EditIcon fontSize="small" /></IconButton>
-                  </Tooltip>
-                  <Tooltip title="Löschen">
-                    <IconButton onClick={() => onDelete(r)} size="small" color="error">
-                      <DeleteOutline fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </TableCell>
-              </TableRow>
-            ))}
+            {rows.map((r) => {
+              const defName = r.defaultGroupId
+                ? (groupsById[String(r.defaultGroupId)]?.name || '—')
+                : '—';
+              const chips = roleChipsForUser(r);
+
+              return (
+                <TableRow key={r._id} hover>
+                  <TableCell>{r.displayName || r.name || '—'}</TableCell>
+                  <TableCell>{r.email || '—'}</TableCell>
+                  <TableCell><Chip size="small" label={r.status || 'active'} /></TableCell>
+                  <TableCell>{defName}</TableCell> {/* ⬅︎ NEU */}
+                  <TableCell>                    {/* ⬅︎ NEU */}
+                    <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
+                      {chips.length === 0 ? (
+                        <Chip size="small" variant="outlined" label="—" />
+                      ) : chips.map(c => (
+                        <Tooltip key={c.key} title={c.title}>
+                          <Chip size="small" label={c.initial} />
+                        </Tooltip>
+                      ))}
+                    </Stack>
+                  </TableCell>
+                  <TableCell>{r.isTenantAdmin ? <Chip size="small" label="yes" /> : <Chip size="small" label="no" />}</TableCell>
+                  <TableCell align="right">
+                    <Tooltip title="Bearbeiten">
+                      <IconButton onClick={() => onOpenEdit(r)} size="small"><EditIcon fontSize="small" /></IconButton>
+                    </Tooltip>
+                    <Tooltip title="Löschen">
+                      <IconButton onClick={() => onDelete(r)} size="small" color="error">
+                        <DeleteOutline fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
             {!loading && rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5}>
+                <TableCell colSpan={7}>
                   <Typography variant="body2" color="text.secondary">Keine Benutzer vorhanden.</Typography>
                 </TableCell>
               </TableRow>

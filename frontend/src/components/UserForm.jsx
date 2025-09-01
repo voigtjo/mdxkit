@@ -1,4 +1,3 @@
-// src/components/UserForm.jsx
 // ✅ UserForm mit formatText-Auswertung & finalem Read-Only bei 'angenommen'
 import React, { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
@@ -26,8 +25,12 @@ import {
 
 import { parseForm } from "@/utils/parseForm.jsx";
 import { parseFormatOptions } from "@/utils/parseFormatOptions.js"; // NEU
+import usePerms, { PERMS as P } from '@/hooks/usePerms';
 
 const UserForm = () => {
+  const { can } = usePerms();
+  const canEditPerm = can(P.FORMDATA_EDIT);
+
   const { formName, patientId } = useParams();
   // TEST: keine patientId im Pfad; PROD: patientId vorhanden
   const MODE = patientId ? "PROD" : "TEST";
@@ -84,7 +87,8 @@ const UserForm = () => {
   };
 
   // In PROD editierbar nur bei 'offen' oder 'gespeichert'. In TEST immer editierbar.
-  const isEditable = MODE === "TEST" ? true : (status === "offen" || status === "gespeichert");
+  const isEditableByStatus = MODE === "TEST" ? true : (status === "offen" || status === "gespeichert");
+  const isEditable = canEditPerm && isEditableByStatus;
   const formatOptions = parseFormatOptions(formatText);
 
   const handleSave = async () => {
@@ -180,6 +184,9 @@ const UserForm = () => {
     }
   };
 
+  // PDF/Druck: erlauben bei Test-Mode ODER wenn freigegeben ODER wenn Bearbeitungsrecht
+  const canOutput = MODE === 'TEST' || status === 'freigegeben' || canEditPerm;
+
   return (
     <Box sx={{ p: 4, display: "flex", justifyContent: "center", overflowX: "auto" }}>
       <Paper sx={{ width: "100%", maxWidth: "1400px", minWidth: "1000px", p: 4 }} elevation={3}>
@@ -213,10 +220,10 @@ const UserForm = () => {
             <Button variant="contained" onClick={handleSubmit} color="success" disabled={!isEditable}>
               ✅ Freigeben
             </Button>
-            <Button variant="outlined" onClick={handleDownloadPDF} color="secondary">
+            <Button variant="outlined" onClick={handleDownloadPDF} color="secondary" disabled={!canOutput}>
               📄 PDF
             </Button>
-            <Button variant="outlined" onClick={handlePrint} color="secondary">
+            <Button variant="outlined" onClick={handlePrint} color="secondary" disabled={!canOutput}>
               🖨️ Drucken
             </Button>
           </Box>

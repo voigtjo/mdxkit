@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const FormFormat = require('../models/formFormat');
+const { requirePerm, PERMISSIONS: P } = require('../middleware/authz');
 
 // Liste aller Formatvorlagen (nur des aktuellen Tenants)
 router.get('/', async (req, res) => {

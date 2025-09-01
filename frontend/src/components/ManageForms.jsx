@@ -1,24 +1,11 @@
 // src/components/ManageForms.jsx
 import React, { useEffect, useState } from 'react';
+import { useAuth } from '@/context/AuthContext';
 import {
-  Box,
-  Typography,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Button,
-  Alert,
-  Tooltip,
-  Stack,
-  IconButton,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  Paper,
-  Divider,
+  Box, Typography, FormControl, InputLabel, Select,
+  MenuItem, Button, Alert, Tooltip, Stack, IconButton,
+  Table, TableHead, TableRow, TableCell, TableBody,
+  Paper, Divider,
 } from '@mui/material';
 import { Link } from 'react-router-dom';
 import SendIcon from '@mui/icons-material/Send';
@@ -27,32 +14,37 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 
-import { getForms } from '@/api/adminApi';
+import { getAvailableForms } from '@/api/formApi';
 import {
-  assignForm,
-  getFormsByName,
-  deleteFormAssignment,
-  getAllFormData,
-  reopenForm,
-  acceptForm,
+  assignForm, getFormsByName, deleteFormAssignment,
+  getAllFormData, reopenForm, acceptForm,
 } from '@/api/manageApi';
 import { useTenant } from '@/context/TenantContext';
 import { getUsers } from '@/api/userApi';
+import usePerms, { PERMS as P } from '@/hooks/usePerms';
 
 const ManageForms = () => {
+  // ⬇️ jetzt WIRKLICH genutzt, damit Import nicht mehr grau ist
+  const { loading: authLoading, user } = useAuth();
+
+  const { can } = usePerms();
+  const canEdit = can(P.FORMDATA_EDIT);
+
   const [forms, setForms] = useState([]);
   const [users, setUsers] = useState([]);
   const [selectedForm, setSelectedForm] = useState('');
   const [selectedUser, setSelectedUser] = useState('');
-  const [entries, setEntries] = useState([]); // optional on-demand je Formular
+  const [entries, setEntries] = useState([]);
   const [formDataList, setFormDataList] = useState([]);
   const [message, setMessage] = useState('');
 
   const { tenantId } = useTenant();
 
   useEffect(() => {
+    if (authLoading || !user) return;
     const init = async () => {
-      const f = await getForms();
+      // Operator sieht nur die sichtbaren Formulare
+      const f = await getAvailableForms();
       const u = await getUsers();
       const d = await getAllFormData();
       setForms(f || []);
@@ -60,7 +52,7 @@ const ManageForms = () => {
       setFormDataList(d || []);
     };
     init();
-  }, []);
+  }, [authLoading, user]);
 
   const loadEntries = async (formName) => {
     if (!formName) return;
@@ -71,15 +63,12 @@ const ManageForms = () => {
   const refreshAllData = async () => {
     const updatedData = await getAllFormData();
     setFormDataList(updatedData || []);
-    if (selectedForm) {
-      await loadEntries(selectedForm);
-    }
+    if (selectedForm) await loadEntries(selectedForm);
   };
 
   const handleAssign = async () => {
     if (!selectedForm || !selectedUser) return;
-    // Backend erwartet weiterhin "patientId" im Payload → hier bewusst selectedUser übergeben
-    await assignForm(selectedForm, selectedUser);
+    await assignForm(selectedForm, selectedUser); // Backend erwartet patientId
     setMessage('✅ Formular zugewiesen');
     await refreshAllData();
   };
@@ -95,7 +84,7 @@ const ManageForms = () => {
       await reopenForm(entryId);
       setMessage('🔁 Formular erneut zugewiesen');
       await refreshAllData();
-    } catch (err) {
+    } catch {
       setMessage('❌ Fehler beim erneuten Zuweisen');
     }
   };
@@ -105,28 +94,26 @@ const ManageForms = () => {
       await acceptForm(entryId);
       setMessage('✅ Formular akzeptiert (abgeschlossen)');
       await refreshAllData();
-    } catch (err) {
+    } catch {
       setMessage('❌ Fehler beim Akzeptieren');
     }
   };
 
-  const getUserName = (id) => {
-    return users.find((u) => u._id === id)?.name || id;
-  };
+  const getUserName = (id) => users.find((u) => u._id === id)?.name || id;
 
-  return (
+  if (authLoading) {
+    return <Box sx={{ p: 4 }}><Alert severity="info">Lade…</Alert></Box>;
+  }
+
+  return !canEdit ? (
+    <Box sx={{ p: 4 }}>
+      <Alert severity="warning">Keine Berechtigung für diesen Bereich.</Alert>
+    </Box>
+  ) : (
     <Box
-      sx={{
-        minHeight: '100vh',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'flex-start',
-        pt: 6,
-        px: 4,
-      }}
+      sx={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', pt: 6, px: 4 }}
     >
       <Box sx={{ width: '100%', maxWidth: 1200 }}>
-        {/* 🔙 Tenant-bewusster Zurück-Button */}
         <Button
           component={Link}
           to={tenantId ? `/tenant/${encodeURIComponent(tenantId)}` : '/'}
@@ -137,33 +124,24 @@ const ManageForms = () => {
           Zurück
         </Button>
 
-        <Typography variant="h4" gutterBottom>
-          Formulare zuweisen
-        </Typography>
+        <Typography variant="h4" gutterBottom>Formulare zuweisen</Typography>
 
         <Paper sx={{ p: 3, mb: 3 }}>
           <Stack direction="row" spacing={2}>
-            {/* Formularauswahl */}
             <FormControl fullWidth>
               <InputLabel id="form-select-label">Formular</InputLabel>
               <Select
                 labelId="form-select-label"
                 value={selectedForm}
                 label="Formular"
-                onChange={(e) => {
-                  setSelectedForm(e.target.value);
-                  loadEntries(e.target.value);
-                }}
+                onChange={(e) => { setSelectedForm(e.target.value); loadEntries(e.target.value); }}
               >
                 {forms.map((f) => (
-                  <MenuItem key={f.name} value={f.name}>
-                    {f.name}
-                  </MenuItem>
+                  <MenuItem key={f.name} value={f.name}>{f.title || f.name}</MenuItem>
                 ))}
               </Select>
             </FormControl>
 
-            {/* Nutzer-Auswahl */}
             <FormControl fullWidth>
               <InputLabel id="user-select-label">Nutzer</InputLabel>
               <Select
@@ -173,14 +151,11 @@ const ManageForms = () => {
                 onChange={(e) => setSelectedUser(e.target.value)}
               >
                 {users.map((u) => (
-                  <MenuItem key={u._id} value={u._id}>
-                    {u.name}
-                  </MenuItem>
+                  <MenuItem key={u._id} value={u._id}>{u.name}</MenuItem>
                 ))}
               </Select>
             </FormControl>
 
-            {/* Zuweisungsbutton */}
             <Tooltip title="Formular zuweisen">
               <span>
                 <Button
@@ -188,7 +163,7 @@ const ManageForms = () => {
                   color="success"
                   onClick={handleAssign}
                   startIcon={<SendIcon />}
-                  disabled={!selectedForm || !selectedUser}
+                  disabled={!canEdit || !selectedForm || !selectedUser}
                 >
                   Zuweisen
                 </Button>
@@ -197,17 +172,11 @@ const ManageForms = () => {
           </Stack>
         </Paper>
 
-        {message && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            {message}
-          </Alert>
-        )}
+        {message && <Alert severity="info" sx={{ mb: 2 }}>{message}</Alert>}
 
         <Divider sx={{ my: 2 }} />
 
-        <Typography variant="h5" gutterBottom>
-          Zugewiesene Formulare
-        </Typography>
+        <Typography variant="h5" gutterBottom>Zugewiesene Formulare</Typography>
 
         <Table>
           <TableHead>
@@ -228,7 +197,6 @@ const ManageForms = () => {
                     (v{e.version})
                   </Typography>
                 </TableCell>
-
                 <TableCell>{getUserName(e.patientId)}</TableCell>
                 <TableCell>{e.status}</TableCell>
                 <TableCell>{new Date(e.updatedAt).toLocaleString()}</TableCell>
@@ -248,42 +216,33 @@ const ManageForms = () => {
                       </Button>
                     </Tooltip>
 
-                    {/* Löschen nur solange offen */}
                     {e.status === 'offen' && (
                       <Tooltip title="Löschen">
-                        <IconButton onClick={() => handleDelete(e._id)} color="error" size="small">
-                          <DeleteIcon />
-                        </IconButton>
+                        <span>
+                          <IconButton onClick={() => handleDelete(e._id)} color="error" size="small" disabled={!canEdit}>
+                            <DeleteIcon />
+                          </IconButton>
+                        </span>
                       </Tooltip>
                     )}
 
-                    {/* Erneut zuweisen (zurück auf 'offen') */}
                     {e.status === 'freigegeben' && (
-                      <Tooltip title="Erneut zuweisen">
-                        <Button
-                          onClick={() => handleReopen(e._id)}
-                          color="warning"
-                          variant="outlined"
-                          size="small"
-                        >
-                          Erneut zuweisen
-                        </Button>
-                      </Tooltip>
-                    )}
-
-                    {/* Akzeptieren = final abschließen */}
-                    {e.status === 'freigegeben' && (
-                      <Tooltip title="Akzeptieren (abschließen)">
-                        <Button
-                          onClick={() => handleAccept(e._id)}
-                          color="primary"
-                          variant="contained"
-                          size="small"
-                          startIcon={<CheckCircleIcon />}
-                        >
-                          Akzeptieren
-                        </Button>
-                      </Tooltip>
+                      <>
+                        <Tooltip title="Erneut zuweisen">
+                          <span>
+                            <Button onClick={() => handleReopen(e._id)} color="warning" variant="outlined" size="small" disabled={!canEdit}>
+                              Erneut zuweisen
+                            </Button>
+                          </span>
+                        </Tooltip>
+                        <Tooltip title="Akzeptieren (abschließen)">
+                          <span>
+                            <Button onClick={() => handleAccept(e._id)} color="primary" variant="contained" size="small" startIcon={<CheckCircleIcon />} disabled={!canEdit}>
+                              Akzeptieren
+                            </Button>
+                          </span>
+                        </Tooltip>
+                      </>
                     )}
                   </Stack>
                 </TableCell>

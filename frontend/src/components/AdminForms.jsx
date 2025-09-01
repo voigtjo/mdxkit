@@ -1,55 +1,38 @@
 // src/components/AdminForms.jsx
 import React, { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '@/context/AuthContext';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Box,
-  Typography,
-  TextField,
-  Button,
-  Container,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  Paper,
-  Stack,
-  Divider,
-  MenuItem,
-  Select,
-  FormControl,
-  InputLabel,
-  Chip,
-  IconButton,
-  Tooltip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Checkbox,
-  FormControlLabel,
-  OutlinedInput,
+  Box, Typography, TextField, Button, Container,
+  Table, TableHead, TableRow, TableCell, TableBody,
+  Paper, Stack, Divider, MenuItem, Select, FormControl,
+  InputLabel, Chip, IconButton, Tooltip, Dialog,
+  DialogTitle, DialogContent, DialogActions,
+  Checkbox, FormControlLabel, OutlinedInput,
 } from '@mui/material';
 import { Edit as EditIcon } from '@mui/icons-material';
 
 import {
-  getForms,
-  uploadForm,
-  releaseFormVersion,
-  lockFormVersion,
-  getFormVersionText,
+  getForms, uploadForm, releaseFormVersion,
+  lockFormVersion, getFormVersionText,
   assignTemplatesToForm,
 } from '@/api/adminApi';
 import { getFormats } from '@/api/formatApi';
 import { getPrints } from '@/api/printApi';
 import { useTenant } from '@/context/TenantContext';
-
-// Sichtbarkeits-API (global / gruppen)
 import { getAvailableForms, updateFormMeta } from '@/api/formApi';
-// Gruppenliste für Labeling & Auswahl
 import { listGroups } from '@/api/groupApi';
+import usePerms, { PERMS as P } from '@/hooks/usePerms';
 
 const AdminForms = () => {
+  // ⬇️ WICHTIG: Auth-Status nutzen, damit wir erst nach Login laden
+  const { loading: authLoading, user } = useAuth();
+
+  const { can } = usePerms();
+  const canCreate    = can(P.FORM_CREATE);
+  const canAssignTpl = can(P.FORM_ASSIGN_TEMPLATES);
+  const canPublish   = can(P.FORM_PUBLISH);
+
   const navigate = useNavigate();
   const { tenantId: tenantFromUrl } = useParams();
   const { tenantId: tenantFromCtx } = useTenant();
@@ -78,18 +61,14 @@ const AdminForms = () => {
   const [visError, setVisError] = useState('');
 
   const loadForms = async () => {
-    // 1) Admin-Formliste (Versionen, Templates, etc.)
-    // 2) Sichtbarkeits-Meta via /form/available (liefert isGlobal/groupIds + _id)
     const [list, available] = await Promise.all([
       getForms(),
-      getAvailableForms(), // als Admin kommt hier der komplette Bestand zurück (serverseitige Policy)
+      getAvailableForms(),
     ]);
-
     const visByName = new Map((available || []).map(f => [f.name, f]));
     const merged = (list || []).map(f => {
       const v = visByName.get(f.name);
       return {
-        // zuerst _id aus Adminliste, Fallback aus /available
         _id: f._id || v?._id,
         ...f,
         isGlobal: v?.isGlobal ?? true,
@@ -97,14 +76,13 @@ const AdminForms = () => {
         status: v?.status ?? f.status,
       };
     });
-
     setForms(merged);
   };
 
   const loadTemplates = async () => {
     const [formats, printList] = await Promise.all([getFormats(), getPrints()]);
-    setFormats(formats);
-    setPrints(printList);
+    setFormats(formats || []);
+    setPrints(printList || []);
   };
 
   const loadGroups = async () => {
@@ -116,21 +94,13 @@ const AdminForms = () => {
     }
   };
 
-  const getFormatName = (id) => {
-    const match = formats.find(f => f._id === id);
-    return match ? match.name : '–';
-  };
-
-  const getPrintName = (id) => {
-    const match = prints.find(p => p._id === id);
-    return match ? match.name : '–';
-  };
+  const getFormatName = (id) => formats.find(f => f._id === id)?.name || '–';
+  const getPrintName  = (id) => prints.find(p => p._id === id)?.name || '–';
 
   const groupOptions = useMemo(
     () => groups.map(g => ({ value: g._id, label: g.name })),
     [groups]
   );
-
   const labelForGroup = (id) => groupOptions.find(go => go.value === id)?.label || id;
 
   const handleUpload = async () => {
@@ -138,14 +108,11 @@ const AdminForms = () => {
     try {
       const res = await uploadForm(name, text);
       const { version, mode } = res;
-
       const msg = mode === 'update'
         ? `🔁 Version ${version} von "${name}" wurde aktualisiert`
         : `🆕 Neue Version ${version} von "${name}" gespeichert`;
-
       setMessage(`✅ ${msg}`);
       setSelectedVersion(version);
-
       const form = await getFormVersionText(name, version);
       setText(form.text);
       await loadForms();
@@ -199,15 +166,11 @@ const AdminForms = () => {
       setSelectedVersion(version);
 
       const meta = forms.find((f) => f.name === formName);
-
       const isReadonly = mode === 'valid';
       setIsReadOnly(isReadonly);
       setSelectedFormat(meta?.formFormatId || '');
       setSelectedPrint(meta?.formPrintId || '');
-
-      setMessage(
-        `📝 Version ${version} von "${formName}" geladen${isReadonly ? " (gültig – nicht bearbeitbar)" : ""}`
-      );
+      setMessage(`📝 Version ${version} von "${formName}" geladen${isReadonly ? " (gültig – nicht bearbeitbar)" : ""}`);
     } catch (err) {
       console.error("❌ Fehler beim Laden:", err);
       setMessage("❌ Fehler beim Laden der Version");
@@ -224,7 +187,7 @@ const AdminForms = () => {
     setSelectedPrint('');
   };
 
-  // Sichtbarkeit öffnen/speichern
+  // Sichtbarkeit
   const openVisibilityDialog = (formRow) => {
     setVisEditing(formRow);
     setVisIsGlobal(!!formRow.isGlobal);
@@ -236,17 +199,10 @@ const AdminForms = () => {
   const saveVisibility = async () => {
     try {
       if (!visEditing) return;
-
-      // Fallback: _id ggf. aus aktuellem forms-State per name nachschlagen
       const effectiveId = visEditing._id || (forms.find(x => x.name === visEditing.name)?._id);
-      if (!effectiveId) {
-        setVisError('Kein gültiges Formular-Objekt (._id fehlt). Bitte neu laden.');
-        return;
-      }
-
+      if (!effectiveId) { setVisError('Kein gültiges Formular-Objekt (._id fehlt). Bitte neu laden.'); return; }
       if (!visIsGlobal && (!Array.isArray(visGroupIds) || visGroupIds.length === 0)) {
-        setVisError('Bitte mindestens eine Gruppe auswählen oder „Global“ aktivieren.');
-        return;
+        setVisError('Bitte mindestens eine Gruppe auswählen oder „Global“ aktivieren.'); return;
       }
       await updateFormMeta(effectiveId, { isGlobal: visIsGlobal, groupIds: visGroupIds });
       setVisOpen(false);
@@ -257,32 +213,25 @@ const AdminForms = () => {
     }
   };
 
+  // ⬇️ Initial-Ladung erst NACH erfolgreicher Auth
   useEffect(() => {
+    if (authLoading || !user) return;
     loadForms();
     loadTemplates();
     loadGroups();
-  }, []);
+  }, [authLoading, user]);
 
   useEffect(() => {
-    if (name && selectedVersion === null) {
-      setSelectedVersion(1);
-    }
+    if (name && selectedVersion === null) setSelectedVersion(1);
   }, [name]);
 
   return (
     <Container maxWidth="lg">
-      {/* 👇 Tenant-bewusster Zurück-Button */}
-      <Button
-        variant="outlined"
-        onClick={() => navigate(`/tenant/${encodeURIComponent(tid)}`)}
-        sx={{ mb: 2 }}
-      >
+      <Button variant="outlined" onClick={() => navigate(`/tenant/${encodeURIComponent(tid)}`)} sx={{ mb: 2 }}>
         ← Zurück
       </Button>
 
-      <Typography variant="h4" gutterBottom>
-        Formular bearbeiten
-      </Typography>
+      <Typography variant="h4" gutterBottom>Formular bearbeiten</Typography>
 
       {selectedVersion !== null && (
         <Typography variant="body1" sx={{ mb: 2 }} color="secondary">
@@ -297,33 +246,13 @@ const AdminForms = () => {
 
       <Paper sx={{ p: 3, mb: 4 }}>
         <Stack direction="row" spacing={2} alignItems="center" mb={2}>
-          <Button variant="outlined" color="inherit" onClick={handleClear}>
-            Leeren
-          </Button>
-          <Button variant="contained" color="primary" onClick={handleUpload} disabled={isReadOnly}>
-            Speichern
-          </Button>
-          <Button
-            variant="outlined"
-            color="success"
-            onClick={handleRelease}
-            disabled={isReadOnly || selectedVersion === null}
-          >
-            Freigeben
-          </Button>
-          <Button variant="outlined" color="error" onClick={handleLock} disabled={isReadOnly}>
-            Sperren
-          </Button>
+          <Button variant="outlined" color="inherit" onClick={handleClear}>Leeren</Button>
+          <Button variant="contained" color="primary" onClick={handleUpload} disabled={isReadOnly || !canCreate}>Speichern</Button>
+          <Button variant="outlined" color="success" onClick={handleRelease} disabled={isReadOnly || selectedVersion === null || !canPublish}>Freigeben</Button>
+          <Button variant="outlined" color="error" onClick={handleLock} disabled={isReadOnly || !canPublish}>Sperren</Button>
         </Stack>
 
-        <TextField
-          label="Formularname"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          fullWidth
-          sx={{ mb: 2 }}
-          InputProps={{ readOnly: isReadOnly }}
-        />
+        <TextField label="Formularname" value={name} onChange={(e) => setName(e.target.value)} fullWidth sx={{ mb: 2 }} InputProps={{ readOnly: isReadOnly }} />
 
         {isReadOnly && (
           <Typography variant="body2" color="error" sx={{ mb: 2 }}>
@@ -331,50 +260,29 @@ const AdminForms = () => {
           </Typography>
         )}
 
-        <TextField
-          label="Formulartext (Markdown)"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          multiline
-          minRows={6}
-          fullWidth
-          InputProps={{ readOnly: isReadOnly }}
-        />
+        <TextField label="Formulartext (Markdown)" value={text} onChange={(e) => setText(e.target.value)}
+          multiline minRows={6} fullWidth InputProps={{ readOnly: isReadOnly }} />
 
         {!isReadOnly && (
           <>
             <Divider sx={{ my: 3 }} />
-            <Typography variant="h6" gutterBottom>
-              Vorlagen zuweisen (gültige Version erforderlich)
-            </Typography>
+            <Typography variant="h6" gutterBottom>Vorlagen zuweisen (gültige Version erforderlich)</Typography>
             <Stack direction="row" spacing={2}>
               <FormControl sx={{ minWidth: 200 }}>
                 <InputLabel>Formatvorlage</InputLabel>
-                <Select
-                  value={selectedFormat}
-                  label="Formatvorlage"
-                  onChange={(e) => setSelectedFormat(e.target.value)}
-                >
+                <Select value={selectedFormat} label="Formatvorlage" onChange={(e) => setSelectedFormat(e.target.value)}>
                   <MenuItem value=""><em>Keine</em></MenuItem>
-                  {formats.map(f => (
-                    <MenuItem key={f._id} value={f._id}>{f.name}</MenuItem>
-                  ))}
+                  {formats.map(f => (<MenuItem key={f._id} value={f._id}>{f.name}</MenuItem>))}
                 </Select>
               </FormControl>
               <FormControl sx={{ minWidth: 200 }}>
                 <InputLabel>Druckvorlage</InputLabel>
-                <Select
-                  value={selectedPrint}
-                  label="Druckvorlage"
-                  onChange={(e) => setSelectedPrint(e.target.value)}
-                >
+                <Select value={selectedPrint} label="Druckvorlage" onChange={(e) => setSelectedPrint(e.target.value)}>
                   <MenuItem value=""><em>Keine</em></MenuItem>
-                  {prints.map(p => (
-                    <MenuItem key={p._id} value={p._id}>{p.name}</MenuItem>
-                  ))}
+                  {prints.map(p => (<MenuItem key={p._id} value={p._id}>{p.name}</MenuItem>))}
                 </Select>
               </FormControl>
-              <Button variant="outlined" onClick={handleAssignTemplates}>Zuweisen</Button>
+              <Button variant="outlined" onClick={handleAssignTemplates} disabled={!canAssignTpl}>Zuweisen</Button>
             </Stack>
           </>
         )}
@@ -382,9 +290,7 @@ const AdminForms = () => {
 
       <Divider sx={{ mb: 3 }} />
 
-      <Typography variant="h5" gutterBottom>
-        Aktive Formulare
-      </Typography>
+      <Typography variant="h5" gutterBottom>Aktive Formulare</Typography>
 
       <Table>
         <TableHead>
@@ -402,10 +308,8 @@ const AdminForms = () => {
         </TableHead>
         <TableBody>
           {forms.map((f, i) => (
-            <TableRow
-              key={f._id || i}
-              selected={f.name === name && (f.validVersion === selectedVersion || f.currentVersion === selectedVersion)}
-            >
+            <TableRow key={f._id || i}
+              selected={f.name === name && (f.validVersion === selectedVersion || f.currentVersion === selectedVersion)}>
               <TableCell>{f.name}</TableCell>
               <TableCell>{f.validVersion || '–'}</TableCell>
               <TableCell>{f.currentVersion || '–'}</TableCell>
@@ -417,43 +321,21 @@ const AdminForms = () => {
                   <Chip size="small" label="global" />
                 ) : (
                   <Stack direction="row" spacing={0.5} flexWrap="wrap">
-                    {(f.groupIds || []).map(id => (
-                      <Chip key={id} size="small" label={labelForGroup(id)} />
-                    ))}
+                    {(f.groupIds || []).map(id => (<Chip key={id} size="small" label={labelForGroup(id)} />))}
                   </Stack>
                 )}
               </TableCell>
               <TableCell>{f.updatedAt ? new Date(f.updatedAt).toLocaleString() : '–'}</TableCell>
               <TableCell>
                 <Stack direction="row" spacing={1}>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={() => handleLoad(f.name, f.validVersion)}
-                    disabled={!f.validVersion}
-                  >
+                  <Button variant="outlined" size="small" onClick={() => handleLoad(f.name, f.validVersion, 'valid')} disabled={!f.validVersion}>
                     Lade gültig
                   </Button>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={() => handleLoad(f.name, f.currentVersion)}
-                    disabled={!f.currentVersion}
-                  >
+                  <Button variant="outlined" size="small" onClick={() => handleLoad(f.name, f.currentVersion, 'current')} disabled={!f.currentVersion}>
                     Lade aktuell
                   </Button>
-                  <a
-                    href={`/formular-test/${f.name}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      color="warning"
-                    >
-                      Testen
-                    </Button>
+                  <a href={`/formular-test/${f.name}`} target="_blank" rel="noopener noreferrer">
+                    <Button variant="outlined" size="small" color="warning">Testen</Button>
                   </a>
                   <Tooltip title="Sichtbarkeit ändern">
                     <IconButton size="small" onClick={() => openVisibilityDialog(f)}>
@@ -465,7 +347,6 @@ const AdminForms = () => {
             </TableRow>
           ))}
         </TableBody>
-
       </Table>
 
       {/* Dialog Sichtbarkeit */}
@@ -497,15 +378,11 @@ const AdminForms = () => {
                 input={<OutlinedInput label="Gruppen" />}
                 renderValue={(selected) => (
                   <Stack direction="row" spacing={0.5} flexWrap="wrap">
-                    {(selected || []).map(id => (
-                      <Chip key={id} size="small" label={labelForGroup(id)} />
-                    ))}
+                    {(selected || []).map(id => (<Chip key={id} size="small" label={labelForGroup(id)} />))}
                   </Stack>
                 )}
               >
-                {groupOptions.map(go => (
-                  <MenuItem key={go.value} value={go.value}>{go.label}</MenuItem>
-                ))}
+                {groupOptions.map(go => (<MenuItem key={go.value} value={go.value}>{go.label}</MenuItem>))}
               </Select>
             </FormControl>
 

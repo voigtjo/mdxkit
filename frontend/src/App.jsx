@@ -21,6 +21,11 @@ import AdminUsers from './components/AdminUsers';
 import SystemHome from './components/system/SystemHome';
 import TenantAdmin from './components/system/TenantAdmin';
 
+/* === NEU: Auth-Context + Gate + Header-Useranzeige === */
+import AuthProvider from './context/AuthContext';
+import AuthGate from './components/AuthGate';
+import HeaderUser from './components/HeaderUser';
+
 // Kleiner Redirect-Helper für alte Pfade
 function TenantRedirect({ to }) {
   const { tenantId } = useTenant();
@@ -28,13 +33,20 @@ function TenantRedirect({ to }) {
   return <Navigate to={`/tenant/${encodeURIComponent(tenantId)}/${to}`} replace />;
 }
 
-// Wrapper: zeigt TenantBar nur außerhalb von /system/*
+// Wrapper: zeigt TenantBar (links) + eingeloggten User (rechts) nur außerhalb von /system/*
 function LayoutWithOptionalTenantBar({ children }) {
   const location = useLocation();
   const isSystem = location.pathname.startsWith('/system');
+
   return (
     <>
-      {!isSystem && <TenantBar />}
+      {!isSystem && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 12px' }}>
+          <TenantBar />
+          {/* Rechts oben: eingeloggter User mit Logout etc. */}
+          <HeaderUser />
+        </div>
+      )}
       {children}
     </>
   );
@@ -42,53 +54,60 @@ function LayoutWithOptionalTenantBar({ children }) {
 
 const App = () => {
   return (
-    <TenantProvider>
-      <Router>
-        <LayoutWithOptionalTenantBar>
-          <TenantGate>
-            <Routes>
-              {/* Systembereich (ohne TenantBar) */}
-              <Route path="/system" element={<SystemHome />} />
-              <Route path="/system/tenants" element={<TenantAdmin />} />
+    // Auth-Pipeline ganz oben, damit TenantGate & Routen auf user/me zugreifen können
+    <AuthProvider>
+      <TenantProvider>
+        <Router>
+          <LayoutWithOptionalTenantBar>
+            {/* AuthGate sorgt dafür, dass nur eingeloggte User die App sehen.
+                (Public-/Survey-Routen kannst du später außerhalb des Gates definieren.) */}
+            <AuthGate>
+              <TenantGate>
+                <Routes>
+                  {/* Systembereich (ohne TenantBar) */}
+                  <Route path="/system" element={<SystemHome />} />
+                  <Route path="/system/tenants" element={<TenantAdmin />} />
 
-              {/* Tenant-Bereich */}
-              <Route path="/tenant/:tenantId" element={<Home />} />
+                  {/* Tenant-Bereich */}
+                  <Route path="/tenant/:tenantId" element={<Home />} />
 
-              {/* Admin-Einstieg mit Tabs */}
-              <Route path="/tenant/:tenantId/admin" element={<AdminIndex />} />
-              <Route path="/tenant/:tenantId/admin/forms" element={<AdminIndex />} />
-              <Route path="/tenant/:tenantId/admin/users" element={<AdminIndex />} />
-              <Route path="/tenant/:tenantId/admin/groups" element={<AdminIndex />} />
+                  {/* Admin-Einstieg mit Tabs */}
+                  <Route path="/tenant/:tenantId/admin" element={<AdminIndex />} />
+                  <Route path="/tenant/:tenantId/admin/forms" element={<AdminIndex />} />
+                  <Route path="/tenant/:tenantId/admin/users" element={<AdminIndex />} />
+                  <Route path="/tenant/:tenantId/admin/groups" element={<AdminIndex />} />
 
-              {/* Bestehende Seiten bleiben erreichbar */}
-              <Route path="/tenant/:tenantId/manage" element={<ManageForms />} />
+                  {/* Bestehende Seiten bleiben erreichbar */}
+                  <Route path="/tenant/:tenantId/manage" element={<ManageForms />} />
 
-              {/* Form-Workflows (Legacy-Param-Namen beibehalten) */}
-              <Route path="/tenant/:tenantId/formular/:formName/:patientId" element={<UserForm />} />
-              <Route path="/tenant/:tenantId/formular-test/:formName" element={<UserForm />} />
+                  {/* Form-Workflows (Legacy-Param-Namen beibehalten) */}
+                  <Route path="/tenant/:tenantId/formular/:formName/:patientId" element={<UserForm />} />
+                  <Route path="/tenant/:tenantId/formular-test/:formName" element={<UserForm />} />
 
-              {/* Admin-Subseiten (außerhalb Tabs) */}
-              <Route path="/tenant/:tenantId/admin/format" element={<FormatForm />} />
-              <Route path="/tenant/:tenantId/admin/print" element={<FormatForm />} />
+                  {/* Admin-Subseiten (außerhalb Tabs) */}
+                  <Route path="/tenant/:tenantId/admin/format" element={<FormatForm />} />
+                  <Route path="/tenant/:tenantId/admin/print" element={<FormatForm />} />
 
-              {/* Legacy-Pfade → automatisch tenantisiert */}
-              <Route path="/admin" element={<TenantRedirect to="admin" />} />
-              <Route path="/admin/forms" element={<TenantRedirect to="admin/forms" />} />
-              <Route path="/admin/users" element={<TenantRedirect to="admin/users" />} />
-              <Route path="/manage" element={<TenantRedirect to="manage" />} />
-              <Route path="/admin/format" element={<TenantRedirect to="admin/format" />} />
-              <Route path="/admin/print" element={<TenantRedirect to="admin/print" />} />
-              <Route path="/formular/:formName/:patientId" element={<TenantRedirect to="formular/:formName/:patientId" />} />
-              <Route path="/formular-test/:formName" element={<TenantRedirect to="formular-test/:formName" />} />
+                  {/* Legacy-Pfade → automatisch tenantisiert */}
+                  <Route path="/admin" element={<TenantRedirect to="admin" />} />
+                  <Route path="/admin/forms" element={<TenantRedirect to="admin/forms" />} />
+                  <Route path="/admin/users" element={<TenantRedirect to="admin/users" />} />
+                  <Route path="/manage" element={<TenantRedirect to="manage" />} />
+                  <Route path="/admin/format" element={<TenantRedirect to="admin/format" />} />
+                  <Route path="/admin/print" element={<TenantRedirect to="admin/print" />} />
+                  <Route path="/formular/:formName/:patientId" element={<TenantRedirect to="formular/:formName/:patientId" />} />
+                  <Route path="/formular-test/:formName" element={<TenantRedirect to="formular-test/:formName" />} />
 
-              {/* Start & Fallback */}
-              <Route path="/" element={<Home />} />
-              <Route path="*" element={<p className="p-4 text-red-600">❌ Seite nicht gefunden</p>} />
-            </Routes>
-          </TenantGate>
-        </LayoutWithOptionalTenantBar>
-      </Router>
-    </TenantProvider>
+                  {/* Start & Fallback */}
+                  <Route path="/" element={<Home />} />
+                  <Route path="*" element={<p className="p-4 text-red-600">❌ Seite nicht gefunden</p>} />
+                </Routes>
+              </TenantGate>
+            </AuthGate>
+          </LayoutWithOptionalTenantBar>
+        </Router>
+      </TenantProvider>
+    </AuthProvider>
   );
 };
 

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router({ mergeParams: true });
 const mongoose = require('mongoose');
+const { requirePerm, PERMISSIONS: P } = require('../middleware/authz');
 
 const Form = require('../models/form');
 const FormVersion = require('../models/formVersion');
@@ -219,7 +220,7 @@ router.get('/test/:formName', async (req, res) => {
 });
 
 // Speichern (PROD/TEST)
-router.put('/save/:id', async (req, res) => {
+router.put('/save-test/:id', requirePerm(P.FORMDATA_EDIT), async (req, res) => {
   try {
     const { id } = req.params;
     const { data, signature } = req.body;
@@ -246,7 +247,7 @@ router.put('/save-test/:id', async (req, res) => {
 });
 
 // Submit (PROD/TEST)
-router.post('/submit/:id', async (req, res) => {
+router.post('/submit/:id', requirePerm(P.FORMDATA_EDIT), async (req, res) => {
   try {
     const { id } = req.params;
     const { data, signature } = req.body;
@@ -259,7 +260,7 @@ router.post('/submit/:id', async (req, res) => {
   }
 });
 
-router.post('/submit-test/:id', async (req, res) => {
+router.post('/submit-test/:id', requirePerm(P.FORMDATA_EDIT), async (req, res) => {
   try {
     const { id } = req.params;
     const { data, signature } = req.body;

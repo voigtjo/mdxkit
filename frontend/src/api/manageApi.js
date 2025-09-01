@@ -1,40 +1,38 @@
-// src/api/manageApi.js
+// frontend/src/api/manageApi.js
 import api from './axios';
 
-const manageAPI = '/manage';
-
-export const assignForm = async (formName, patientId) => {
-  const res = await api.post(`${manageAPI}/assign`, { formName, patientId });
+// Formular einem Nutzer zuweisen
+export async function assignForm(formName, patientId) {
+  const res = await api.post('/manage/assign', { formName, patientId });
   return res.data;
-};
+}
 
-export const acceptForm = async (id) => {
-  const res = await api.post(`${manageAPI}/accept/${id}`);
+// Einträge nach Formular
+export async function getFormsByName(formName) {
+  const res = await api.get(`/manage/byForm/${encodeURIComponent(formName)}`);
   return res.data;
-};
+}
 
-export const reopenForm = async (id) => {
-  const res = await api.post(`${manageAPI}/reopen/${id}`);
+// Alle Formulardaten
+export async function getAllFormData() {
+  const res = await api.get('/manage/allFormData');
   return res.data;
-};
+}
 
-export const getFormsByName = async (formName) => {
-  const res = await api.get(`${manageAPI}/byForm/${encodeURIComponent(formName)}`);
+// Zuweisung löschen (nur offen)
+export async function deleteFormAssignment(id) {
+  const res = await api.delete(`/manage/assignment/${encodeURIComponent(id)}`);
   return res.data;
-};
+}
 
-export const getFormsByPatient = async (patientId) => {
-  const res = await api.get(`${manageAPI}/byPatient/${encodeURIComponent(patientId)}`);
+// Reopen (freigegeben -> offen)
+export async function reopenForm(id) {
+  const res = await api.post(`/manage/reopen/${encodeURIComponent(id)}`);
   return res.data;
-};
+}
 
-export const deleteFormAssignment = async (entryId) => {
-  const res = await api.delete(`${manageAPI}/assignment/${entryId}`);
+// Accept (freigegeben -> angenommen)
+export async function acceptForm(id) {
+  const res = await api.post(`/manage/accept/${encodeURIComponent(id)}`);
   return res.data;
-};
-
-// 🆕 ALLE Formulareinträge abrufen
-export const getAllFormData = async () => {
-  const res = await api.get(`${manageAPI}/allFormData`);
-  return res.data;
-};
+}

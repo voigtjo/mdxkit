@@ -4,16 +4,17 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-// Optional hart machen, wenn gewünscht:
 // const helmet = require('helmet');
 
-const tenantResolver   = require('./middleware/tenant');        // liest x-tenant-id o.ä.
+const authRoutes       = require('./routes/auth');
+const { authRequired } = require('./middleware/auth');
 const tenantFromParam  = require('./middleware/tenantFromParam');
 
 // Routen
 const tenantsPublicRoutes = require('./routes/tenants-public'); // /api/tenants (PUBLIC)
 const sysTenantsRoutes    = require('./routes/sysTenants');     // /api/sys/tenants (SYSTEM)
 const roleSysRoutes       = require('./routes/roles.sys');      // /api/sys/roles   (SYSTEM)
+const sysUsersRoutes      = require('./routes/sysUsers');       // /api/sys/users   (SYSTEM)
 
 const adminRoutes   = require('./routes/admin');                 // /api/tenant/:tenantId/admin
 const manageRoutes  = require('./routes/manage');                // /api/tenant/:tenantId/manage
@@ -23,7 +24,7 @@ const groupRoutes   = require('./routes/groups');                // /api/tenant/
 const adminFormats  = require('./routes/adminFormats');          // /api/tenant/:tenantId/admin/formats
 const adminPrints   = require('./routes/adminPrints');           // /api/tenant/:tenantId/admin/prints
 
-const app = express();
+const app  = express();
 const PORT = process.env.PORT || 5000;
 
 /* ---------------------- Global Middleware ---------------------- */
@@ -32,31 +33,30 @@ app.use(cors());
 // app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 
+/* ---------------------- Auth ---------------------- */
+app.use('/api/auth', authRoutes);
+
 /* ---------------------- Health ---------------------- */
 app.get('/health', (_req, res) => res.status(200).send('ok'));
 
-/* ---------------------- PUBLIC (kein Tenant) ---------------------- */
-// ⚠️ Diese Routen dürfen NICHT durch tenantResolver laufen
-app.use('/api/tenants', tenantsPublicRoutes);   // z. B. für TenantSwitcher
+/* ---------------------- PUBLIC (no tenant) ---------------------- */
+app.use('/api/tenants', tenantsPublicRoutes);
 
-/* ---------------------- SYSTEM (kein Tenant) ---------------------- */
-// ⚠️ Ebenfalls VOR dem tenantResolver mounten
+/* ---------------------- SYSTEM (no tenant) ---------------------- */
 app.use('/api/sys/tenants', sysTenantsRoutes);
 app.use('/api/sys/roles',   roleSysRoutes);
+app.use('/api/sys/users',   sysUsersRoutes);
 
 /* ---------------------- TENANT-SCOPE ---------------------- */
-// Ab hier nur noch /api/tenant/* vom Resolver prüfen lassen
-// -> schützt tenantisierte APIs und stellt req.tenantId/Context bereit
-app.use('/api/tenant', tenantResolver);
-
-// URL-basierter Tenant-Scope (liest :tenantId in req.tenantId o.ä.)
-app.use('/api/tenant/:tenantId/admin',          tenantFromParam, adminRoutes);
-app.use('/api/tenant/:tenantId/groups',         tenantFromParam, groupRoutes);
-app.use('/api/tenant/:tenantId/manage',         tenantFromParam, manageRoutes);
-app.use('/api/tenant/:tenantId/form',           tenantFromParam, formRoutes);
-app.use('/api/tenant/:tenantId/users',          tenantFromParam, usersRoutes);
-app.use('/api/tenant/:tenantId/admin/formats',  tenantFromParam, adminFormats);
-app.use('/api/tenant/:tenantId/admin/prints',   tenantFromParam, adminPrints);
+// WICHTIG: Nur parametrisierte Routen mounten, kein zusätzliches /api/tenant davor.
+// Reihenfolge: erst tenantFromParam (setzt req.tenantId), dann authRequired.
+app.use('/api/tenant/:tenantId/admin',          tenantFromParam, authRequired, adminRoutes);
+app.use('/api/tenant/:tenantId/groups',         tenantFromParam, authRequired, groupRoutes);
+app.use('/api/tenant/:tenantId/manage',         tenantFromParam, authRequired, manageRoutes);
+app.use('/api/tenant/:tenantId/form',           tenantFromParam, authRequired, formRoutes);
+app.use('/api/tenant/:tenantId/users',          tenantFromParam, authRequired, usersRoutes);
+app.use('/api/tenant/:tenantId/admin/formats',  tenantFromParam, authRequired, adminFormats);
+app.use('/api/tenant/:tenantId/admin/prints',   tenantFromParam, authRequired, adminPrints);
 
 /* ---------------------- 404 & Error Handling ---------------------- */
 app.use((req, res) => {
@@ -75,7 +75,6 @@ if (!process.env.MONGO_URI) {
 }
 
 mongoose.connect(process.env.MONGO_URI, {
-  // Bei Mongoose >= 7 nicht mehr nötig, schadet aber nicht:
   useNewUrlParser: true,
   useUnifiedTopology: true,
 }).then(() => {

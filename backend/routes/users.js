@@ -1,6 +1,6 @@
 // backend/routes/users.js
 const express = require('express');
-const router = express.Router();
+const router = express.Router({ mergeParams: true });
 const mongoose = require('mongoose');
 const User = require('../models/user');
 const Group = require('../models/group');
@@ -39,26 +39,21 @@ async function sanitizeMemberships(tenantId, memberships) {
 }
 
 // LIST (kompakt)
-router.get('/', async (req, res) => {
+router.get('/', async (req, res, next) => {
   try {
-    const tenantId = req.tenantId;
-    const list = await User.find({ status: { $ne: 'deleted' } })
-      .setOptions({ tenantId })
-      .select({ _id: 1, displayName: 1, email: 1, status: 1, isTenantAdmin: 1 })
-      .sort({ displayName: 1, email: 1 })
-      .lean();
+    const tenantId = req.tenantId; // <— statt const { tenantId } = req.params
+    const users = await User.find(
+      { tenantId, status: { $ne: 'deleted' } },
+      'displayName email status defaultGroupId memberships isTenantAdmin'
+    ).lean();
 
-    res.json(list.map(u => ({
-      _id: String(u._id),
-      name: u.displayName || u.email || 'Unbenannt',
-      email: u.email || '',
-      status: u.status || 'active',
-      isTenantAdmin: !!u.isTenantAdmin,
-    })));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    users.forEach(u => { u.name = u.displayName || u.email || ''; });
+    res.json(users);
+  } catch (e) {
+    next(e);
   }
 });
+
 
 // DETAIL
 router.get('/:id', async (req, res) => {
@@ -227,6 +222,84 @@ router.delete('/:id', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, re
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PUT /api/tenant/:tenantId/users/:userId/flags
+ * Body: { isTenantAdmin?: boolean, defaultGroupId?: ObjectId | null }
+ */
+router.put('/:userId/flags', async (req, res, next) => {
+  try {
+    const { tenantId } = req.params; // String (z. B. 'dev')
+    const { userId } = req.params;
+    const { isTenantAdmin, defaultGroupId } = req.body || {};
+
+    const user = await User.findById(userId);
+    if (!user || user.tenantId !== tenantId) {
+      return res.status(404).json({ error: 'User not found in tenant' });
+    }
+
+    if (typeof isTenantAdmin === 'boolean') {
+      user.isTenantAdmin = isTenantAdmin;
+    }
+
+    if (defaultGroupId === null) {
+      user.defaultGroupId = null;
+    } else if (defaultGroupId) {
+      // validieren, dass die Group zum selben Tenant gehört
+      const grp = await Group.findById(defaultGroupId);
+      if (!grp || grp.tenantId !== tenantId) {
+        return res.status(400).json({ error: 'defaultGroupId not in tenant' });
+      }
+      user.defaultGroupId = grp._id;
+    }
+
+    await user.save();
+    return res.json({ user });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * PUT /api/tenant/:tenantId/users/:userId/memberships
+ * Body: { memberships: [{ groupId, roles: [String] }, ...] }
+ * Validiert, dass alle groups zum Tenant gehören.
+ */
+router.put('/:userId/memberships', async (req, res, next) => {
+  try {
+    const { tenantId } = req.params;
+    const { userId } = req.params;
+    const { memberships } = req.body || {};
+
+    const user = await User.findById(userId);
+    if (!user || user.tenantId !== tenantId) {
+      return res.status(404).json({ error: 'User not found in tenant' });
+    }
+
+    if (!Array.isArray(memberships)) {
+      return res.status(400).json({ error: 'memberships must be array' });
+    }
+
+    // Validierung: alle GroupIds gehören zu diesem Tenant
+    const groupIds = memberships.map(m => m.groupId).filter(Boolean);
+    const groups = await Group.find({ _id: { $in: groupIds } });
+    const invalid = groups.find(g => g.tenantId !== tenantId);
+    if (invalid) {
+      return res.status(400).json({ error: 'One or more groups are not in tenant' });
+    }
+
+    // Speichern (einfach ersetzen)
+    user.memberships = memberships.map(m => ({
+      groupId: new mongoose.Types.ObjectId(String(m.groupId)),
+      roles: Array.isArray(m.roles) ? m.roles : [],
+    }));
+
+    await user.save();
+    return res.json({ user });
+  } catch (e) {
+    next(e);
   }
 });
 

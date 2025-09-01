@@ -1,10 +1,10 @@
-// frontend/src/components/AdminIndex.jsx
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Box, Paper, Tabs, Tab, Stack, Typography } from '@mui/material';
 import AdminForms from './AdminForms';
 import AdminUsers from './AdminUsers';
 import AdminGroups from './AdminGroups';
+import usePerms, { PERMS as P } from '@/hooks/usePerms';
 
 function useActiveAdminTab() {
   const location = useLocation();
@@ -19,6 +19,29 @@ export default function AdminIndex() {
   const { tenantId } = useParams();
   const navigate = useNavigate();
   const active = useActiveAdminTab();
+  const { can } = usePerms();
+
+  // Forms-Tab nur anzeigen, wenn Author ODER Publisher Rechte vorhanden sind
+  const showForms = can(P.FORM_CREATE) || can(P.FORM_PUBLISH);
+  const showUsers = true;
+  const showGroups = true;
+
+  const available = [
+    ...(showForms ? ['forms'] : []),
+    ...(showUsers ? ['users'] : []),
+    ...(showGroups ? ['groups'] : []),
+  ];
+
+  const safeActive = available.includes(active) ? active : (available[0] || 'users');
+
+  // Wenn aktiver Tab nicht verfügbar ist, auf ersten verfügbaren Tab umleiten
+  useEffect(() => {
+    if (safeActive !== active) {
+      if (safeActive === 'forms') navigate(`/tenant/${tenantId}/admin/forms`, { replace: true });
+      if (safeActive === 'users') navigate(`/tenant/${tenantId}/admin/users`, { replace: true });
+      if (safeActive === 'groups') navigate(`/tenant/${tenantId}/admin/groups`, { replace: true });
+    }
+  }, [safeActive, active, tenantId, navigate]);
 
   const onChange = (_e, v) => {
     if (v === 'forms') navigate(`/tenant/${tenantId}/admin/forms`);
@@ -27,10 +50,10 @@ export default function AdminIndex() {
   };
 
   const content = useMemo(() => {
-    if (active === 'users') return <AdminUsers />;
-    if (active === 'groups') return <AdminGroups />;
+    if (safeActive === 'users') return <AdminUsers />;
+    if (safeActive === 'groups') return <AdminGroups />;
     return <AdminForms />;
-  }, [active]);
+  }, [safeActive]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -43,15 +66,15 @@ export default function AdminIndex() {
 
       <Paper elevation={1} sx={{ mb: 2 }}>
         <Tabs
-          value={active}
+          value={safeActive}
           onChange={onChange}
           aria-label="Admin Tabs"
           textColor="primary"
           indicatorColor="primary"
         >
-          <Tab value="forms" label="Forms" />
-          <Tab value="users" label="Users" />
-          <Tab value="groups" label="Groups" />
+          {showForms && <Tab value="forms" label="Forms" />}
+          {showUsers && <Tab value="users" label="Users" />}
+          {showGroups && <Tab value="groups" label="Groups" />}
         </Tabs>
       </Paper>
 

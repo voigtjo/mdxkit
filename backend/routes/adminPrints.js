@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const FormPrint = require('../models/formPrint');
+const { requirePerm, PERMISSIONS: P } = require('../middleware/authz');
 
 // Liste aller Printvorlagen (nur aktueller Tenant)
 router.get('/', async (req, res) => {
@@ -15,7 +16,7 @@ router.get('/', async (req, res) => {
 });
 
 // Neue Printvorlage hochladen oder aktualisieren (tenant-scope)
-router.post('/', async (req, res) => {
+router.post('/', requirePerm(P.FORM_ASSIGN_TEMPLATES), async (req, res) => {
   try {
     const { name, text } = req.body;
     const tenantId = req.tenantId;
@@ -46,7 +47,7 @@ router.post('/', async (req, res) => {
 });
 
 // Printvorlage freigeben (nur im Tenant)
-router.put('/release/:id', async (req, res) => {
+router.put('/release/:id', requirePerm(P.FORM_ASSIGN_TEMPLATES), async (req, res) => {
   try {
     const updated = await FormPrint.findOneAndUpdate(
       { _id: req.params.id },

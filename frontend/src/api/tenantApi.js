@@ -1,9 +1,9 @@
 // frontend/src/api/tenantApi.js
 // Zentraler Helper für Tenant-APIs (public, system, tenant-scoped).
-// Hält die alten Funktionsnamen für Kompatibilität bei,
-// nutzt aber die neue Trennung von publicApi, sysApi und tenantApi.
+// Hält alte Funktionsnamen für Kompatibilität, nutzt aber die Trennung
+// von publicApi, sysApi und dem tenant-scope Default-Client `api`.
 
-import { publicApi, sysApi, tenantApi } from './axios';
+import api, { publicApi, sysApi } from './axios';
 
 /** -------- PUBLIC (no tenant) -------- **/
 
@@ -41,10 +41,7 @@ export const updateTenant = async (tenantId, payload) => {
 
 // Set tenant status (SystemAdmin)
 export const setTenantStatus = async (tenantId, status) => {
-  const res = await sysApi.patch(
-    `/tenants/${encodeURIComponent(tenantId)}/status`,
-    { status }
-  );
+  const res = await sysApi.patch(`/tenants/${encodeURIComponent(tenantId)}/status`, { status });
   return res.data;
 };
 
@@ -56,8 +53,8 @@ export const deleteSystemTenant = async (tenantId) => {
 
 /** -------- TENANT (scoped) -------- **/
 
-// Beispiel für tenant-scope (falls nötig)
+// Beispiel für tenant-scope (mit Auth-Header)
 export const getTenantScopedInfo = async () => {
-  const res = await tenantApi.get('/admin'); // /api/tenant/:tid/admin
+  const res = await api.get('/admin'); // → /api/tenant/:tid/admin
   return res.data;
 };

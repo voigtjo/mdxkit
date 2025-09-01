@@ -1,37 +1,41 @@
-// src/api/adminApi.js
+// frontend/src/api/adminApi.js
 import api from './axios';
 
-const adminAPI = '/admin';
-
-export const uploadForm = async (name, text) => {
-  const res = await api.post(`${adminAPI}/upload-form`, { name, text });
+// Alle Formulare inkl. Versionen & Vorlagen (Adminsicht)
+export async function getForms() {
+  const res = await api.get('/admin/forms');
   return res.data;
-};
+}
 
-export const getForms = async () => {
-  const res = await api.get(`${adminAPI}/forms`);
-  return res.data;
-};
+// Formular hochladen/aktualisieren (Entwurf)
+export async function uploadForm(name, text) {
+  const res = await api.post('/admin/upload-form', { name, text });
+  return res.data; // { success, version, mode }
+}
 
-export const lockFormVersion = async (formName, version) => {
-  const res = await api.post(`${adminAPI}/forms/${encodeURIComponent(formName)}/lock`, { version });
+// Aktuelle Version freigeben
+export async function releaseFormVersion(name, version) {
+  const res = await api.post(`/admin/forms/${encodeURIComponent(name)}/release`, { version });
   return res.data;
-};
+}
 
-export const releaseFormVersion = async (formName) => {
-  const res = await api.post(`${adminAPI}/forms/${encodeURIComponent(formName)}/release`);
+// Version sperren
+export async function lockFormVersion(name, version) {
+  const res = await api.post(`/admin/forms/${encodeURIComponent(name)}/lock`, { version });
   return res.data;
-};
+}
 
-export const getFormVersionText = async (formName, version) => {
-  const res = await api.get(`${adminAPI}/forms/${encodeURIComponent(formName)}/version/${version}`);
-  return res.data;
-};
+// Konkrete Formularversion (Text) abrufen
+export async function getFormVersionText(name, version) {
+  const res = await api.get(`/admin/forms/${encodeURIComponent(name)}/version/${encodeURIComponent(version)}`);
+  return res.data; // { text, ... }
+}
 
-export const assignTemplatesToForm = async (formName, formFormatId, formPrintId) => {
-  const res = await api.put(`${adminAPI}/forms/${encodeURIComponent(formName)}/assign-templates`, {
-    formFormatId,
-    formPrintId
-  });
+// Format-/Printvorlagen zuweisen
+export async function assignTemplatesToForm(name, formFormatId, formPrintId) {
+  const res = await api.put(
+    `/admin/forms/${encodeURIComponent(name)}/assign-templates`,
+    { formFormatId, formPrintId }
+  );
   return res.data;
-};
+}
