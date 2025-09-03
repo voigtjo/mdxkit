@@ -1,19 +1,21 @@
 const base = '/api/auth';
 
+// Registrierung bleibt mit tenantId (neue User müssen einem Tenant zugeordnet werden)
 export async function register(payload) {
   const res = await fetch(`${base}/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload), // { tenantId, displayName, email, password }
   });
   return res.json();
 }
 
-export async function login(payload) {
+// ⬇️ Login OHNE tenantId – nur { email, password }
+export async function login({ email, password }) {
   const res = await fetch(`${base}/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ email, password }),
   });
   return res.json();
 }

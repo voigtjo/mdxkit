@@ -1,3 +1,4 @@
+// src/components/AdminIndex.jsx
 import React, { useMemo, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Box, Paper, Tabs, Tab, Stack, Typography } from '@mui/material';
@@ -50,10 +51,10 @@ export default function AdminIndex() {
   };
 
   const content = useMemo(() => {
-    if (safeActive === 'users') return <AdminUsers />;
-    if (safeActive === 'groups') return <AdminGroups />;
-    return <AdminForms />;
-  }, [safeActive]);
+    if (safeActive === 'users') return <AdminUsers key={`users-${tenantId}`} />;
+    if (safeActive === 'groups') return <AdminGroups key={`groups-${tenantId}`} />;
+    return <AdminForms key={`forms-${tenantId}`} />;
+  }, [safeActive, tenantId]);
 
   return (
     <Box sx={{ p: 3 }}>

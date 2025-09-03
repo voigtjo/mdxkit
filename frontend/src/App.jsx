@@ -2,6 +2,9 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 
+import RoleVisible from './routes/RoleVisible';
+import DebugGate from './debug/DebugGate';
+
 import Home from './components/Home';
 import AdminForms from './components/AdminForms';
 import ManageForms from './components/ManageForms';
@@ -13,16 +16,13 @@ import { useTenant } from './context/TenantContext';
 import TenantGate from './components/TenantGate';
 import TenantBar from './components/TenantBar';
 
-// Admin-Tabs-Container (neu)
 import AdminIndex from './components/AdminIndex';
-// Für direkte Loads bleibt die Users-Page separat importierbar
 import AdminUsers from './components/AdminUsers';
 
 import SystemHome from './components/system/SystemHome';
 import TenantAdmin from './components/system/TenantAdmin';
 
-/* === NEU: Auth-Context + Gate + Header-Useranzeige === */
-import AuthProvider from './context/AuthContext';
+import AuthProvider, { useAuth } from './context/AuthContext';
 import AuthGate from './components/AuthGate';
 import HeaderUser from './components/HeaderUser';
 
@@ -33,20 +33,34 @@ function TenantRedirect({ to }) {
   return <Navigate to={`/tenant/${encodeURIComponent(tenantId)}/${to}`} replace />;
 }
 
-// Wrapper: zeigt TenantBar (links) + eingeloggten User (rechts) nur außerhalb von /system/*
-function LayoutWithOptionalTenantBar({ children }) {
-  const location = useLocation();
-  const isSystem = location.pathname.startsWith('/system');
+/**
+ * Header-Wrapper:
+ * - Links: TenantBar nur für SysAdmins
+ * - Rechts: HeaderUser für alle eingeloggten User
+ */
+function LayoutWithConditionalHeader({ children }) {
+  const { user } = useAuth();
+  const isSysAdmin = !!user?.isSystemAdmin;
+
+  if (!user) {
+    // gar kein Header im Login/Register
+    return children;
+  }
 
   return (
     <>
-      {!isSystem && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 12px' }}>
-          <TenantBar />
-          {/* Rechts oben: eingeloggter User mit Logout etc. */}
-          <HeaderUser />
-        </div>
-      )}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          padding: '8px 12px',
+        }}
+      >
+        {isSysAdmin ? <TenantBar /> : <div />} {/* Links leer außer bei SysAdmin */}
+        <HeaderUser /> {/* Rechts immer */}
+      </div>
       {children}
     </>
   );
@@ -54,41 +68,109 @@ function LayoutWithOptionalTenantBar({ children }) {
 
 const App = () => {
   return (
-    // Auth-Pipeline ganz oben, damit TenantGate & Routen auf user/me zugreifen können
     <AuthProvider>
       <TenantProvider>
         <Router>
-          <LayoutWithOptionalTenantBar>
-            {/* AuthGate sorgt dafür, dass nur eingeloggte User die App sehen.
-                (Public-/Survey-Routen kannst du später außerhalb des Gates definieren.) */}
+          <DebugGate /> 
+          <LayoutWithConditionalHeader>
             <AuthGate>
               <TenantGate>
                 <Routes>
-                  {/* Systembereich (ohne TenantBar) */}
+                  {/* Systembereich */}
                   <Route path="/system" element={<SystemHome />} />
                   <Route path="/system/tenants" element={<TenantAdmin />} />
 
                   {/* Tenant-Bereich */}
-                  <Route path="/tenant/:tenantId" element={<Home />} />
+                  <Route
+                    path="/tenant/:tenantId"
+                    element={
+                      <RoleVisible allow={['FormAuthor','FormPublisher','Operator']}>
+                        <Home />
+                      </RoleVisible>
+                    }
+                  />
 
-                  {/* Admin-Einstieg mit Tabs */}
-                  <Route path="/tenant/:tenantId/admin" element={<AdminIndex />} />
-                  <Route path="/tenant/:tenantId/admin/forms" element={<AdminIndex />} />
-                  <Route path="/tenant/:tenantId/admin/users" element={<AdminIndex />} />
-                  <Route path="/tenant/:tenantId/admin/groups" element={<AdminIndex />} />
+                  {/* Admin (FormAuthor ODER FormPublisher) */}
+                  <Route
+                    path="/tenant/:tenantId/admin"
+                    element={
+                      <RoleVisible allow={['FormAuthor','FormPublisher']}>
+                        <AdminIndex />
+                      </RoleVisible>
+                    }
+                  />
+                  <Route
+                    path="/tenant/:tenantId/admin/forms"
+                    element={
+                      <RoleVisible allow={['FormAuthor','FormPublisher']}>
+                        <AdminIndex />
+                      </RoleVisible>
+                    }
+                  />
+                  <Route
+                    path="/tenant/:tenantId/admin/users"
+                    element={
+                      <RoleVisible allow={['FormAuthor','FormPublisher']}>
+                        <AdminIndex />
+                      </RoleVisible>
+                    }
+                  />
+                  <Route
+                    path="/tenant/:tenantId/admin/groups"
+                    element={
+                      <RoleVisible allow={['FormAuthor','FormPublisher']}>
+                        <AdminIndex />
+                      </RoleVisible>
+                    }
+                  />
 
-                  {/* Bestehende Seiten bleiben erreichbar */}
-                  <Route path="/tenant/:tenantId/manage" element={<ManageForms />} />
+                  {/* Manage (nur Operator) */}
+                  <Route
+                    path="/tenant/:tenantId/manage"
+                    element={
+                      <RoleVisible allow={['Operator']}>
+                        <ManageForms />
+                      </RoleVisible>
+                    }
+                  />
 
-                  {/* Form-Workflows (Legacy-Param-Namen beibehalten) */}
-                  <Route path="/tenant/:tenantId/formular/:formName/:patientId" element={<UserForm />} />
-                  <Route path="/tenant/:tenantId/formular-test/:formName" element={<UserForm />} />
+                  {/* Form-Workflows */}
+                  <Route
+                    path="/tenant/:tenantId/formular/:formName/:patientId"
+                    element={
+                      <RoleVisible allow={['FormDataEditor','FormPublisher','Operator']}>
+                        <UserForm />
+                      </RoleVisible>
+                    }
+                  />
+                  <Route
+                    path="/tenant/:tenantId/formular-test/:formName"
+                    element={
+                      <RoleVisible allow={['FormDataEditor','FormPublisher','Operator']}>
+                        <UserForm />
+                      </RoleVisible>
+                    }
+                  />
 
-                  {/* Admin-Subseiten (außerhalb Tabs) */}
-                  <Route path="/tenant/:tenantId/admin/format" element={<FormatForm />} />
-                  <Route path="/tenant/:tenantId/admin/print" element={<FormatForm />} />
+                  {/* Admin-Subseiten */}
+                  <Route
+                    path="/tenant/:tenantId/admin/format"
+                    element={
+                      <RoleVisible allow={['FormAuthor','FormPublisher']}>
+                        <FormatForm />
+                      </RoleVisible>
+                    }
+                  />
+                  <Route
+                    path="/tenant/:tenantId/admin/print"
+                    element={
+                      <RoleVisible allow={['FormAuthor','FormPublisher']}>
+                        <FormatForm />
+                      </RoleVisible>
+                    }
+                  />
 
-                  {/* Legacy-Pfade → automatisch tenantisiert */}
+                  {/* Legacy-Pfade */}
                   <Route path="/admin" element={<TenantRedirect to="admin" />} />
                   <Route path="/admin/forms" element={<TenantRedirect to="admin/forms" />} />
                   <Route path="/admin/users" element={<TenantRedirect to="admin/users" />} />
@@ -104,7 +186,7 @@ const App = () => {
                 </Routes>
               </TenantGate>
             </AuthGate>
-          </LayoutWithOptionalTenantBar>
+          </LayoutWithConditionalHeader>
         </Router>
       </TenantProvider>
     </AuthProvider>

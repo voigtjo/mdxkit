@@ -5,7 +5,6 @@ const User = require('../models/user');
 const Tenant = require('../models/tenant');
 
 const {
-  // authRequired,  ⬅️ nicht mehr hier nutzen
   authRequiredStrict,
   issueTokens,
   rotateRefreshToken,
@@ -13,12 +12,8 @@ const {
   sanitizeUser,
 } = require('../middleware/auth');
 
-
 const router = express.Router();
 
-/**
- * Hilfsfunktion: Tenant prüfen (per tenantId:String)
- */
 async function ensureTenant(tenantId) {
   if (!tenantId) return null;
   const t = await Tenant.findOne({ tenantId, status: 'active' });
@@ -28,11 +23,6 @@ async function ensureTenant(tenantId) {
 /**
  * POST /api/auth/register
  * Body: { tenantId, displayName, email, password }
- *
- * Fälle:
- * - User existiert NICHT -> neu anlegen (ohne Rollen; Admin weist sie zu)
- * - User existiert OHNE passwordHash -> "Claim" (Passwort setzen, Daten evtl. updaten)
- * - User existiert MIT passwordHash -> 409 (bitte Login nutzen)
  */
 router.post('/register', async (req, res, next) => {
   try {
@@ -63,7 +53,6 @@ router.post('/register', async (req, res, next) => {
       return res.json({ user: sanitizeUser(user) });
     }
 
-    // "Claim" eines vormals angelegten Users ohne Passwort
     if (!existing.passwordHash) {
       existing.displayName = existing.displayName || displayName;
       existing.passwordHash = hash;
@@ -72,7 +61,6 @@ router.post('/register', async (req, res, next) => {
       return res.json({ user: sanitizeUser(existing) });
     }
 
-    // Bereits mit Passwort vorhanden
     return res.status(409).json({ error: 'User already registered' });
   } catch (e) {
     next(e);
@@ -81,19 +69,18 @@ router.post('/register', async (req, res, next) => {
 
 /**
  * POST /api/auth/login
- * Body: { tenantId, email, password }
+ * Body: { email, password }   ⬅️ tenantId fällt weg!
  */
 router.post('/login', async (req, res, next) => {
   try {
-    const { tenantId, email, password } = req.body || {};
-    if (!tenantId || !email || !password) {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
       return res.status(400).json({ error: 'Missing fields' });
     }
 
-    const tenant = await ensureTenant(tenantId);
-    if (!tenant) return res.status(400).json({ error: 'Unknown or inactive tenant' });
-
-    const user = await User.findOne({ tenantId, email });
+    // User nur anhand der Email finden.
+    // Annahme: Emails sind global eindeutig – falls nicht, passe hier auf deine Logik an.
+    const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     if (user.status !== 'active') return res.status(403).json({ error: 'User not active' });
     if (!user.passwordHash) return res.status(401).json({ error: 'Password not set' });
@@ -101,6 +88,7 @@ router.post('/login', async (req, res, next) => {
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
 
+    // Tenant kommt aus user.tenantId; SysAdmin hat ggf. keinen Tenant
     const tokens = issueTokens(user);
     return res.json({ user: sanitizeUser(user), ...tokens });
   } catch (e) {

@@ -1,8 +1,7 @@
-// frontend/src/api/axios.js
 // Drei Axios-Instanzen:
-// 1) default export `api`  → /api/tenant/:tenantId (mit Bearer + Refresh-Handling)
-// 2) named export `publicApi` → /api (ohne Auth)
-// 3) named export `sysApi`    → /api/sys (ohne Auth)
+// 1) default export `api`     → /api/tenant/:tenantId  (mit Bearer + Refresh-Handling)
+// 2) named export `publicApi` → /api                   (ohne Auth)
+// 3) named export `sysApi`    → /api/sys               (ohne Auth)
 
 import axios from 'axios';
 
@@ -10,30 +9,34 @@ const ACCESS_KEY = 'accessToken';
 const REFRESH_KEY = 'refreshToken';
 
 function getAccess() {
-  return localStorage.getItem(ACCESS_KEY) || '';
+  try { return localStorage.getItem(ACCESS_KEY) || ''; } catch { return ''; }
 }
 function setAccess(t) {
-  if (t) localStorage.setItem(ACCESS_KEY, t);
+  try { if (t) localStorage.setItem(ACCESS_KEY, t); } catch {}
 }
 function getRefresh() {
-  return localStorage.getItem(REFRESH_KEY) || '';
+  try { return localStorage.getItem(REFRESH_KEY) || ''; } catch { return ''; }
 }
 function setRefresh(t) {
-  if (t) localStorage.setItem(REFRESH_KEY, t);
+  try { if (t) localStorage.setItem(REFRESH_KEY, t); } catch {}
 }
 function clearTokens() {
-  localStorage.removeItem(ACCESS_KEY);
-  localStorage.removeItem(REFRESH_KEY);
+  try {
+    localStorage.removeItem(ACCESS_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+  } catch {}
 }
 
 /** Tenant aus aktueller URL (/tenant/:tenantId/...) ableiten */
 function currentTenantId() {
   try {
     const m = window.location.pathname.match(/\/tenant\/([^/]+)/);
-    return m ? decodeURIComponent(m[1]) : 'dev';
-  } catch {
-    return 'dev';
-  }
+    if (m) return decodeURIComponent(m[1]);
+    // Fallback: ggf. letzter persistierter Tenant
+    const stored = localStorage.getItem('tenantId');
+    if (stored) return stored;
+  } catch {}
+  return 'dev';
 }
 
 /** 2) Öffentliche API (ohne Auth) */
@@ -60,10 +63,11 @@ function ensureBaseURLUpToDate(cfg) {
   if (api.defaults.baseURL !== expected) {
     api.defaults.baseURL = expected;
   }
+  // auch für den konkreten Request setzen (wichtig bei Retries)
   cfg.baseURL = expected;
 }
 
-// Access-Token anhängen
+// Access-Token anhängen + BaseURL stets aktuell halten
 api.interceptors.request.use((config) => {
   ensureBaseURLUpToDate(config);
 
@@ -112,6 +116,7 @@ api.interceptors.response.use(
     const original = error?.config || {};
     const status = error?.response?.status || 0;
 
+    // Auth-Endpunkte nicht refreshen
     const isAuthUrl =
       (original.baseURL && original.url && (original.baseURL + original.url).includes('/api/auth/')) ||
       (original.url || '').startsWith('/api/auth/');
@@ -163,3 +168,4 @@ api.interceptors.response.use(
 );
 
 export default api;
+  

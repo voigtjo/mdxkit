@@ -9,6 +9,7 @@ import {
   InputLabel, Chip, IconButton, Tooltip, Dialog,
   DialogTitle, DialogContent, DialogActions,
   Checkbox, FormControlLabel, OutlinedInput,
+  Alert,
 } from '@mui/material';
 import { Edit as EditIcon } from '@mui/icons-material';
 
@@ -25,7 +26,6 @@ import { listGroups } from '@/api/groupApi';
 import usePerms, { PERMS as P } from '@/hooks/usePerms';
 
 const AdminForms = () => {
-  // ⬇️ WICHTIG: Auth-Status nutzen, damit wir erst nach Login laden
   const { loading: authLoading, user } = useAuth();
 
   const { can } = usePerms();
@@ -50,20 +50,17 @@ const AdminForms = () => {
   const [selectedFormat, setSelectedFormat] = useState('');
   const [selectedPrint, setSelectedPrint] = useState('');
 
-  // Gruppen für Sichtbarkeit
   const [groups, setGroups] = useState([]);
-
-  // Dialog-Status für Sichtbarkeit
   const [visOpen, setVisOpen] = useState(false);
-  const [visEditing, setVisEditing] = useState(null); // {_id, name, title, isGlobal, groupIds}
+  const [visEditing, setVisEditing] = useState(null);
   const [visIsGlobal, setVisIsGlobal] = useState(true);
   const [visGroupIds, setVisGroupIds] = useState([]);
   const [visError, setVisError] = useState('');
 
   const loadForms = async () => {
     const [list, available] = await Promise.all([
-      getForms(),
-      getAvailableForms(),
+      getForms(tid),
+      getAvailableForms(tid),
     ]);
     const visByName = new Map((available || []).map(f => [f.name, f]));
     const merged = (list || []).map(f => {
@@ -80,14 +77,14 @@ const AdminForms = () => {
   };
 
   const loadTemplates = async () => {
-    const [formats, printList] = await Promise.all([getFormats(), getPrints()]);
-    setFormats(formats || []);
-    setPrints(printList || []);
+    const [fmt, pr] = await Promise.all([getFormats(tid), getPrints(tid)]);
+    setFormats(fmt || []);
+    setPrints(pr || []);
   };
 
   const loadGroups = async () => {
     try {
-      const data = await listGroups();
+      const data = await listGroups(tid);
       setGroups(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error(e);
@@ -106,14 +103,14 @@ const AdminForms = () => {
   const handleUpload = async () => {
     if (!name || !text) return;
     try {
-      const res = await uploadForm(name, text);
+      const res = await uploadForm(tid, name, text);
       const { version, mode } = res;
       const msg = mode === 'update'
         ? `🔁 Version ${version} von "${name}" wurde aktualisiert`
         : `🆕 Neue Version ${version} von "${name}" gespeichert`;
       setMessage(`✅ ${msg}`);
       setSelectedVersion(version);
-      const form = await getFormVersionText(name, version);
+      const form = await getFormVersionText(tid, name, version);
       setText(form.text);
       await loadForms();
     } catch (err) {
@@ -125,7 +122,7 @@ const AdminForms = () => {
   const handleRelease = async () => {
     if (!name || !selectedVersion) return;
     try {
-      await releaseFormVersion(name, selectedVersion);
+      await releaseFormVersion(tid, name, selectedVersion);
       setMessage(`✅ Version ${selectedVersion} veröffentlicht`);
       await loadForms();
     } catch (err) {
@@ -137,7 +134,7 @@ const AdminForms = () => {
   const handleLock = async () => {
     if (!name || !selectedVersion) return;
     try {
-      await lockFormVersion(name, selectedVersion);
+      await lockFormVersion(tid, name, selectedVersion);
       setMessage(`🚫 Version ${selectedVersion} gesperrt`);
       await loadForms();
     } catch (err) {
@@ -149,7 +146,7 @@ const AdminForms = () => {
   const handleAssignTemplates = async () => {
     if (!name) return;
     try {
-      await assignTemplatesToForm(name, selectedFormat || null, selectedPrint || null);
+      await assignTemplatesToForm(tid, name, selectedFormat || null, selectedPrint || null);
       setMessage('✅ Vorlagen zugewiesen');
       await loadForms();
     } catch (err) {
@@ -160,7 +157,7 @@ const AdminForms = () => {
 
   const handleLoad = async (formName, version, mode = 'auto') => {
     try {
-      const form = await getFormVersionText(formName, version);
+      const form = await getFormVersionText(tid, formName, version);
       setName(formName);
       setText(form.text);
       setSelectedVersion(version);
@@ -187,7 +184,6 @@ const AdminForms = () => {
     setSelectedPrint('');
   };
 
-  // Sichtbarkeit
   const openVisibilityDialog = (formRow) => {
     setVisEditing(formRow);
     setVisIsGlobal(!!formRow.isGlobal);
@@ -204,7 +200,7 @@ const AdminForms = () => {
       if (!visIsGlobal && (!Array.isArray(visGroupIds) || visGroupIds.length === 0)) {
         setVisError('Bitte mindestens eine Gruppe auswählen oder „Global“ aktivieren.'); return;
       }
-      await updateFormMeta(effectiveId, { isGlobal: visIsGlobal, groupIds: visGroupIds });
+      await updateFormMeta(tid, effectiveId, { isGlobal: visIsGlobal, groupIds: visGroupIds });
       setVisOpen(false);
       await loadForms();
     } catch (e) {
@@ -213,17 +209,47 @@ const AdminForms = () => {
     }
   };
 
-  // ⬇️ Initial-Ladung erst NACH erfolgreicher Auth
+  // 🔁 Bei Tenant-Wechsel neu laden + State resetten
   useEffect(() => {
-    if (authLoading || !user) return;
-    loadForms();
-    loadTemplates();
-    loadGroups();
-  }, [authLoading, user]);
+    if (authLoading || !user || !tid) return;
+
+    let alive = true;
+
+    setForms([]);
+    setFormats([]);
+    setPrints([]);
+    setGroups([]);
+    setName('');
+    setText('');
+    setSelectedVersion(null);
+    setSelectedFormat('');
+    setSelectedPrint('');
+    setIsReadOnly(false);
+    setMessage('');
+
+    (async () => {
+      try {
+        await Promise.all([loadForms(), loadTemplates(), loadGroups()]);
+      } catch (e) {
+        console.error(e);
+      }
+      if (!alive) return;
+    })();
+
+    return () => { alive = false; };
+  }, [authLoading, user, tid]);
 
   useEffect(() => {
     if (name && selectedVersion === null) setSelectedVersion(1);
-  }, [name]);
+  }, [name, selectedVersion]);
+
+  if (authLoading || !tid) {
+    return (
+      <Container maxWidth="lg" sx={{ pt: 2 }}>
+        <Alert severity="info">Lade…</Alert>
+      </Container>
+    );
+  }
 
   return (
     <Container maxWidth="lg">
@@ -260,8 +286,15 @@ const AdminForms = () => {
           </Typography>
         )}
 
-        <TextField label="Formulartext (Markdown)" value={text} onChange={(e) => setText(e.target.value)}
-          multiline minRows={6} fullWidth InputProps={{ readOnly: isReadOnly }} />
+        <TextField
+          label="Formulartext (Markdown)"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          multiline
+          minRows={6}
+          fullWidth
+          InputProps={{ readOnly: isReadOnly }}
+        />
 
         {!isReadOnly && (
           <>
@@ -308,8 +341,10 @@ const AdminForms = () => {
         </TableHead>
         <TableBody>
           {forms.map((f, i) => (
-            <TableRow key={f._id || i}
-              selected={f.name === name && (f.validVersion === selectedVersion || f.currentVersion === selectedVersion)}>
+            <TableRow
+              key={f._id || i}
+              selected={f.name === name && (f.validVersion === selectedVersion || f.currentVersion === selectedVersion)}
+            >
               <TableCell>{f.name}</TableCell>
               <TableCell>{f.validVersion || '–'}</TableCell>
               <TableCell>{f.currentVersion || '–'}</TableCell>
@@ -328,13 +363,28 @@ const AdminForms = () => {
               <TableCell>{f.updatedAt ? new Date(f.updatedAt).toLocaleString() : '–'}</TableCell>
               <TableCell>
                 <Stack direction="row" spacing={1}>
-                  <Button variant="outlined" size="small" onClick={() => handleLoad(f.name, f.validVersion, 'valid')} disabled={!f.validVersion}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => handleLoad(f.name, f.validVersion, 'valid')}
+                    disabled={!f.validVersion}
+                  >
                     Lade gültig
                   </Button>
-                  <Button variant="outlined" size="small" onClick={() => handleLoad(f.name, f.currentVersion, 'current')} disabled={!f.currentVersion}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => handleLoad(f.name, f.currentVersion, 'current')}
+                    disabled={!f.currentVersion}
+                  >
                     Lade aktuell
                   </Button>
-                  <a href={`/formular-test/${f.name}`} target="_blank" rel="noopener noreferrer">
+                  {/* tenantisierter Test-Link */}
+                  <a
+                    href={`/tenant/${encodeURIComponent(tid)}/formular-test/${f.name}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
                     <Button variant="outlined" size="small" color="warning">Testen</Button>
                   </a>
                   <Tooltip title="Sichtbarkeit ändern">

@@ -1,67 +1,71 @@
 // src/components/Home.jsx
 import React from 'react';
-import { Link } from 'react-router-dom';
-import { Box, Button, Stack, Typography } from '@mui/material';
-import { useTenant } from '@/context/TenantContext';
+import { Box, Paper, Stack, Button, Typography } from '@mui/material';
+import { Link, useParams } from 'react-router-dom';
+import usePerms, { PERMS as P } from '@/hooks/usePerms';
+import { useAuth } from '@/context/AuthContext';
 
 export default function Home() {
-  const { tenantId } = useTenant();
-  const disabled = !tenantId;
+  const { user } = useAuth();
+  const { can } = usePerms();
+  const { tenantId } = useParams();
 
-  const t = (path) => (tenantId ? `/tenant/${tenantId}${path}` : '#');
+  // Admin-Bypass
+  const isSysAdmin = !!user?.isSystemAdmin;
+  const isTenantAdminHere = !!user?.isTenantAdmin && user?.tenantId === tenantId;
+
+  // Buttons:
+  // - SysAdmin: immer enabled
+  // - TenantAdmin im eigenen Tenant: immer enabled
+  // - sonst: wie bisher über Permissions
+  const canAdminButton =
+    isSysAdmin || isTenantAdminHere || can(P.FORM_CREATE) || can(P.FORM_PUBLISH);
+
+  const canManageButton =
+    isSysAdmin || isTenantAdminHere || can(P.FORMDATA_EDIT);
 
   return (
-    <Box sx={{ p: 4, display: 'grid', placeItems: 'start' }}>
-      <Typography variant="h4" gutterBottom>Formular-System</Typography>
-      <Typography variant="body1" gutterBottom>
-        Willkommen! Bitte wähle einen Modus:
+    <Box sx={{ p: 3 }}>
+      <Typography variant="h5" sx={{ mb: 2 }}>
+        Tenant: <strong>{tenantId}</strong>
       </Typography>
 
-      <Stack spacing={2} sx={{ mt: 2, width: 480 }}>
-        <Button
-          component={Link}
-          to={t('/admin')}
-          variant="contained"
-          disabled={disabled}
-        >
-          FORMULARADMINISTRATION
-        </Button>
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Typography variant="h6" sx={{ mb: 2 }}>Aktionen</Typography>
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Button
+            component={Link}
+            to={`/tenant/${encodeURIComponent(tenantId)}/admin`}
+            variant="contained"
+            disabled={!canAdminButton}
+          >
+            Formularadministration
+          </Button>
 
-        <Button
-          component={Link}
-          to={t('/manage')}
-          variant="outlined"
-          disabled={disabled}
-        >
-          FORMULARZUWEISUNG
-        </Button>
+          <Button
+            component={Link}
+            to={`/tenant/${encodeURIComponent(tenantId)}/manage`}
+            variant="outlined"
+            disabled={!canManageButton}
+          >
+            Formularzuweisung
+          </Button>
 
-        <Button
-          component={Link}
-          to={t('/admin/format')}
-          variant="outlined"
-          color="secondary"
-          disabled={disabled}
-        >
-          FORMATVORLAGEN VERWALTEN
-        </Button>
+          <Button
+            component={Link}
+            to={`/tenant/${encodeURIComponent(tenantId)}/formular-test/Beispiel`}
+            variant="text"
+          >
+            Formular-Test öffnen
+          </Button>
+        </Stack>
+      </Paper>
 
-        <Button
-          component={Link}
-          to={t('/admin/print')}
-          variant="outlined"
-          color="secondary"
-          disabled={disabled}
-        >
-          DRUCKVORLAGEN VERWALTEN
-        </Button>
-      </Stack>
-
-      {disabled && (
-        <Typography variant="caption" color="text.secondary" sx={{ mt: 2 }}>
-          Bitte oben einen Mandanten auswählen.
+      <Paper sx={{ p: 2 }}>
+        <Typography variant="body1">
+          Willkommen! Wählen Sie eine Aktion.
         </Typography>
-      )}
+      </Paper>
     </Box>
   );
 }

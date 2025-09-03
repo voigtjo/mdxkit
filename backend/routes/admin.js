@@ -6,24 +6,31 @@ const { requirePerm, requireAnyPerm, PERMISSIONS: P } = require('../middleware/a
 const Form = require('../models/form');
 const FormVersion = require('../models/formVersion');
 
-// Formular hochladen oder aktualisieren (nur Author/Admin)
+/**
+ * Formular hochladen oder aktualisieren (nur Author/Admin)
+ */
 router.post('/upload-form', requirePerm(P.FORM_CREATE), async (req, res) => {
   const { name, text } = req.body;
   const tenantId = req.tenantId;
 
   try {
-    const latest = await FormVersion.find({ name }).setOptions({ tenantId }).sort({ version: -1 }).limit(1);
+    // letzte Version im Tenant ermitteln
+    const latest = await FormVersion.find({ tenantId, name })
+      .sort({ version: -1 })
+      .limit(1);
 
     let version;
     let newVersion;
     let mode;
 
     if (latest.length > 0 && !latest[0].valid) {
+      // Offene (nicht gültige) Arbeitsversion überschreiben
       latest[0].text = text;
       await latest[0].save();
       version = latest[0].version;
       mode = 'update';
     } else {
+      // Neue Version anlegen
       version = latest.length > 0 ? latest[0].version + 1 : 1;
       newVersion = new FormVersion({ tenantId, name, version, text, valid: false });
       await newVersion.save();
@@ -32,19 +39,20 @@ router.post('/upload-form', requirePerm(P.FORM_CREATE), async (req, res) => {
 
     const currentVersionId = newVersion?._id || latest[0]?._id || null;
 
-    const form = await Form.findOneAndUpdate(
-      { name },
+    // Form-Metadaten im Tenant upserten
+    await Form.findOneAndUpdate(
+      { tenantId, name },
       {
         $set: {
           name,
           currentVersion: version,
-          currentVersionId: currentVersionId,
+          currentVersionId,
           updatedAt: new Date(),
         },
         $setOnInsert: { tenantId },
       },
       { upsert: true, new: true }
-    ).setOptions({ tenantId });
+    );
 
     res.json({ success: true, version, mode });
   } catch (err) {
@@ -53,19 +61,26 @@ router.post('/upload-form', requirePerm(P.FORM_CREATE), async (req, res) => {
   }
 });
 
-// Formularversion freigeben (Publisher/Admin)
+/**
+ * Formularversion freigeben (Publisher/Admin)
+ */
 router.post('/forms/:name/release', requirePerm(P.FORM_PUBLISH), async (req, res) => {
   const { name } = req.params;
   const tenantId = req.tenantId;
 
   try {
-    const form = await Form.findOne({ name }).setOptions({ tenantId }).populate('currentVersionId');
+    const form = await Form.findOne({ tenantId, name }).populate('currentVersionId');
     if (!form || !form.currentVersionId) {
       return res.status(404).json({ error: 'Formular oder Version nicht gefunden' });
     }
 
-    await FormVersion.updateMany({ name, valid: true }).setOptions({ tenantId }).updateMany({}, { valid: false });
+    // alle bisherigen gültigen Versionen in diesem Tenant/Form invalidieren
+    await FormVersion.updateMany(
+      { tenantId, name, valid: true },
+      { $set: { valid: false } }
+    );
 
+    // aktuelle Arbeitsversion als gültig markieren
     form.currentVersionId.valid = true;
     await form.currentVersionId.save();
 
@@ -80,12 +95,24 @@ router.post('/forms/:name/release', requirePerm(P.FORM_PUBLISH), async (req, res
   }
 });
 
-// Liste aller Formulare (Author ODER Publisher ODER Admin)
+/**
+ * Liste aller Formulare (Author ODER Publisher ODER Admin)
+ */
 router.get('/forms', requireAnyPerm(P.FORM_CREATE, P.FORM_PUBLISH), async (req, res) => {
   const tenantId = req.tenantId;
+
+  // Debug optional
+  console.log('[ADMIN] GET /forms', {
+    url: req.originalUrl,
+    method: req.method,
+    tenantId,
+    userId: req.user?._id?.toString?.() || null,
+    isSysAdmin: !!req.user?.isSystemAdmin,
+    isTenantAdmin: !!req.user?.isTenantAdmin,
+  });
+
   try {
-    const forms = await Form.find({})
-      .setOptions({ tenantId })
+    const forms = await Form.find({ tenantId })
       .populate('currentVersionId')
       .populate('validVersionId')
       .populate('formFormatId')
@@ -112,12 +139,19 @@ router.get('/forms', requireAnyPerm(P.FORM_CREATE, P.FORM_PUBLISH), async (req, 
   }
 });
 
-// Formularversion abrufen (Author ODER Publisher)
+/**
+ * Formularversion abrufen (Author ODER Publisher)
+ */
 router.get('/forms/:name/version/:version', requireAnyPerm(P.FORM_CREATE, P.FORM_PUBLISH), async (req, res) => {
   const { name, version } = req.params;
+  const tenantId = req.tenantId;
+
   try {
-    const form = await FormVersion.findOne({ name, version: parseInt(version, 10) })
-      .setOptions({ tenantId: req.tenantId });
+    const form = await FormVersion.findOne({
+      tenantId,
+      name,
+      version: parseInt(version, 10),
+    });
     if (!form) return res.status(404).json({ error: 'Formularversion nicht gefunden' });
     res.json(form);
   } catch (err) {
@@ -126,7 +160,9 @@ router.get('/forms/:name/version/:version', requireAnyPerm(P.FORM_CREATE, P.FORM
   }
 });
 
-// Formular sperren (nur Admin/Publisher)
+/**
+ * Formular sperren (nur Admin/Publisher)
+ */
 router.post('/forms/:name/lock', requirePerm(P.FORM_PUBLISH), async (req, res) => {
   const { name } = req.params;
   const { version } = req.body;
@@ -137,10 +173,10 @@ router.post('/forms/:name/lock', requirePerm(P.FORM_PUBLISH), async (req, res) =
       return res.status(400).json({ error: 'version (Number) erforderlich' });
     }
 
-    const base = await Form.findOne({ name }).setOptions({ tenantId });
+    const base = await Form.findOne({ tenantId, name });
     if (!base) return res.status(404).json({ error: 'Formular nicht gefunden' });
 
-    const fv = await FormVersion.findOne({ name, version }).setOptions({ tenantId });
+    const fv = await FormVersion.findOne({ tenantId, name, version });
     if (!fv) return res.status(404).json({ error: 'Version nicht gefunden' });
 
     fv.status = 'gesperrt';
@@ -153,14 +189,16 @@ router.post('/forms/:name/lock', requirePerm(P.FORM_PUBLISH), async (req, res) =
   }
 });
 
-// Format-/Printvorlage zuweisen (Publisher/Admin)
+/**
+ * Format-/Printvorlage zuweisen (Publisher/Admin)
+ */
 router.put('/forms/:name/assign-templates', requirePerm(P.FORM_ASSIGN_TEMPLATES), async (req, res) => {
   const { name } = req.params;
   const { formFormatId, formPrintId } = req.body;
   const tenantId = req.tenantId;
 
   try {
-    const form = await Form.findOne({ name }).setOptions({ tenantId });
+    const form = await Form.findOne({ tenantId, name });
     if (!form) return res.status(404).json({ error: 'Formular nicht gefunden' });
 
     if (formFormatId !== undefined) form.formFormatId = formFormatId;

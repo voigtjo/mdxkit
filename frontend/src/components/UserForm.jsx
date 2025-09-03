@@ -1,3 +1,4 @@
+// src/components/UserForm.jsx
 // ✅ UserForm mit formatText-Auswertung & finalem Read-Only bei 'angenommen'
 import React, { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
@@ -24,12 +25,12 @@ import {
 } from "@/api/formApi";
 
 import { parseForm } from "@/utils/parseForm.jsx";
-import { parseFormatOptions } from "@/utils/parseFormatOptions.js"; // NEU
-import usePerms, { PERMS as P } from '@/hooks/usePerms';
+import { parseFormatOptions } from "@/utils/parseFormatOptions.js";
+import { useRoles } from '@/hooks/useRoles';
 
 const UserForm = () => {
-  const { can } = usePerms();
-  const canEditPerm = can(P.FORMDATA_EDIT);
+  const { isSysAdmin, isTenantAdmin, hasAnyRole } = useRoles();
+  const canEditByRole = isSysAdmin || isTenantAdmin || hasAnyRole(['FormDataEditor','FormPublisher']);
 
   const { formName, patientId } = useParams();
   // TEST: keine patientId im Pfad; PROD: patientId vorhanden
@@ -88,7 +89,7 @@ const UserForm = () => {
 
   // In PROD editierbar nur bei 'offen' oder 'gespeichert'. In TEST immer editierbar.
   const isEditableByStatus = MODE === "TEST" ? true : (status === "offen" || status === "gespeichert");
-  const isEditable = canEditPerm && isEditableByStatus;
+  const isEditable = canEditByRole && isEditableByStatus;
   const formatOptions = parseFormatOptions(formatText);
 
   const handleSave = async () => {
@@ -185,7 +186,7 @@ const UserForm = () => {
   };
 
   // PDF/Druck: erlauben bei Test-Mode ODER wenn freigegeben ODER wenn Bearbeitungsrecht
-  const canOutput = MODE === 'TEST' || status === 'freigegeben' || canEditPerm;
+  const canOutput = MODE === 'TEST' || status === 'freigegeben' || canEditByRole;
 
   return (
     <Box sx={{ p: 4, display: "flex", justifyContent: "center", overflowX: "auto" }}>

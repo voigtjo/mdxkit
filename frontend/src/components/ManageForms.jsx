@@ -24,8 +24,8 @@ import { getUsers } from '@/api/userApi';
 import usePerms, { PERMS as P } from '@/hooks/usePerms';
 
 const ManageForms = () => {
-  // ⬇️ jetzt WIRKLICH genutzt, damit Import nicht mehr grau ist
   const { loading: authLoading, user } = useAuth();
+  const { tenantId } = useTenant();
 
   const { can } = usePerms();
   const canEdit = can(P.FORMDATA_EDIT);
@@ -38,32 +38,55 @@ const ManageForms = () => {
   const [formDataList, setFormDataList] = useState([]);
   const [message, setMessage] = useState('');
 
-  const { tenantId } = useTenant();
-
+  // ⬅️ Beim Tenant-Wechsel lokalen Zustand leeren, damit keine „alten“ Daten kurz sichtbar sind
   useEffect(() => {
-    if (authLoading || !user) return;
+    setForms([]);
+    setUsers([]);
+    setSelectedForm('');
+    setSelectedUser('');
+    setEntries([]);
+    setFormDataList([]);
+    setMessage('');
+  }, [tenantId]);
+
+  // ⬅️ Daten laden: jetzt abhängig von tenantId
+  useEffect(() => {
+    if (authLoading || !user || !tenantId) return;
     const init = async () => {
-      // Operator sieht nur die sichtbaren Formulare
-      const f = await getAvailableForms();
-      const u = await getUsers();
-      const d = await getAllFormData();
-      setForms(f || []);
-      setUsers(u || []);
-      setFormDataList(d || []);
+      try {
+        const [f, u, d] = await Promise.all([
+          getAvailableForms(), // tenant-scope (Backend-Pfad nutzt :tenantId)
+          getUsers(),          // tenant-scope
+          getAllFormData(),    // tenant-scope
+        ]);
+        setForms(f || []);
+        setUsers(u || []);
+        setFormDataList(d || []);
+      } catch (e) {
+        console.error('❌ Initial-Load (ManageForms) fehlgeschlagen:', e);
+      }
     };
     init();
-  }, [authLoading, user]);
+  }, [authLoading, user, tenantId]);
 
   const loadEntries = async (formName) => {
     if (!formName) return;
-    const list = await getFormsByName(formName);
-    setEntries(list || []);
+    try {
+      const list = await getFormsByName(formName);
+      setEntries(list || []);
+    } catch (e) {
+      console.error('❌ getFormsByName fehlgeschlagen:', e);
+    }
   };
 
   const refreshAllData = async () => {
-    const updatedData = await getAllFormData();
-    setFormDataList(updatedData || []);
-    if (selectedForm) await loadEntries(selectedForm);
+    try {
+      const updatedData = await getAllFormData();
+      setFormDataList(updatedData || []);
+      if (selectedForm) await loadEntries(selectedForm);
+    } catch (e) {
+      console.error('❌ refreshAllData fehlgeschlagen:', e);
+    }
   };
 
   const handleAssign = async () => {
@@ -101,7 +124,7 @@ const ManageForms = () => {
 
   const getUserName = (id) => users.find((u) => u._id === id)?.name || id;
 
-  if (authLoading) {
+  if (authLoading || !tenantId) {
     return <Box sx={{ p: 4 }}><Alert severity="info">Lade…</Alert></Box>;
   }
 
