@@ -8,6 +8,10 @@ import axios from 'axios';
 const ACCESS_KEY = 'accessToken';
 const REFRESH_KEY = 'refreshToken';
 
+// Basis-URL: Prod via VITE_API_BASE (z. B. https://<backend>.onrender.com/api), sonst '/api'
+const API_ROOT_RAW = (import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
+const apiBase = API_ROOT_RAW || '/api';
+
 function getAccess() {
   try { return localStorage.getItem(ACCESS_KEY) || ''; } catch { return ''; }
 }
@@ -41,30 +45,29 @@ function currentTenantId() {
 
 /** 2) Öffentliche API (ohne Auth) */
 export const publicApi = axios.create({
-  baseURL: '/api',
+  baseURL: apiBase, // '/api' in Dev, 'https://.../api' in Prod
   withCredentials: false,
 });
 
 /** 3) System-API (ohne Auth) */
 export const sysApi = axios.create({
-  baseURL: '/api/sys',
+  baseURL: `${apiBase}/sys`,
   withCredentials: false,
 });
 
 /** 1) Tenant-API (mit Auth) */
 const api = axios.create({
-  baseURL: `/api/tenant/${currentTenantId()}`,
+  baseURL: `${apiBase}/tenant/${currentTenantId()}`,
   withCredentials: false,
 });
 
 function ensureBaseURLUpToDate(cfg) {
   const tid = currentTenantId();
-  const expected = `/api/tenant/${tid}`;
+  const expected = `${apiBase}/tenant/${tid}`;
   if (api.defaults.baseURL !== expected) {
     api.defaults.baseURL = expected;
   }
-  // auch für den konkreten Request setzen (wichtig bei Retries)
-  cfg.baseURL = expected;
+  cfg.baseURL = expected; // auch beim konkreten Request (wichtig bei Retries)
 }
 
 // Access-Token anhängen + BaseURL stets aktuell halten
@@ -97,12 +100,14 @@ function resolveQueue(error, token = null) {
   queue = [];
 }
 
+const REFRESH_URL = `${apiBase}/auth/refresh`;
+
 async function doRefresh() {
   const refreshToken = getRefresh();
   if (!refreshToken) throw new Error('No refresh token');
 
-  // Refresh läuft über /api/auth/refresh (ohne tenant-scope)
-  const res = await axios.post('/api/auth/refresh', { refreshToken });
+  // Refresh läuft über /api/auth/refresh (ohne tenant-scope), mit base (dev/prod)
+  const res = await axios.post(REFRESH_URL, { refreshToken });
   if (!res?.data?.accessToken) throw new Error('Refresh failed');
 
   setAccess(res.data.accessToken);
@@ -117,9 +122,8 @@ api.interceptors.response.use(
     const status = error?.response?.status || 0;
 
     // Auth-Endpunkte nicht refreshen
-    const isAuthUrl =
-      (original.baseURL && original.url && (original.baseURL + original.url).includes('/api/auth/')) ||
-      (original.url || '').startsWith('/api/auth/');
+    const fullUrl = (original.baseURL || '') + (original.url || '');
+    const isAuthUrl = fullUrl.includes('/api/auth/');
 
     if (status !== 401 || isAuthUrl) {
       return Promise.reject(error);
@@ -168,4 +172,3 @@ api.interceptors.response.use(
 );
 
 export default api;
-  

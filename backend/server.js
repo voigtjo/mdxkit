@@ -1,9 +1,9 @@
 // backend/server.js
 require('dotenv').config();
 
-const express = require('express');
+const express  = require('express');
 const mongoose = require('mongoose');
-const cors = require('cors');
+const cors     = require('cors');
 // const helmet = require('helmet');
 
 const authRoutes       = require('./routes/auth');
@@ -24,20 +24,78 @@ const groupRoutes   = require('./routes/groups');                // /api/tenant/
 const adminFormats  = require('./routes/adminFormats');          // /api/tenant/:tenantId/admin/formats
 const adminPrints   = require('./routes/adminPrints');           // /api/tenant/:tenantId/admin/prints
 
-const app  = express();
-const PORT = process.env.PORT || 5000;
+const sysTestMail = require('./routes/sysTestMail');
+
+const app   = express();
+const isProd = process.env.NODE_ENV === 'production';
+const PORT  = Number(process.env.PORT) || 5001;
 
 /* ---------------------- Global Middleware ---------------------- */
 app.set('trust proxy', 1);
-app.use(cors());
+
+// CORS: Prod -> aus CORS_ORIGIN (kommagetrennt); Dev -> Default-Whitelist
+const defaultDevOrigins = [
+  'http://localhost:5173', 'http://127.0.0.1:5173',
+  'http://localhost:3000', 'http://127.0.0.1:3000',
+];
+
+const envOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
+const allowedOrigins = envOrigins.length ? envOrigins : (isProd ? [] : defaultDevOrigins);
+
+// Optional: in Dev anzeigen
+if (!isProd) console.log('[CORS] Allowed origins:', allowedOrigins);
+
+app.use(cors({
+  origin(origin, cb) {
+    // ohne Origin (curl/Postman/SSR) erlauben
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(new Error(`CORS blocked: ${origin}`));
+  },
+  credentials: true,
+}));
+
 // app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
+
+// ─── SMTP einmal beim Start prüfen (falls aktiv) ───────────────────────────────
+try {
+  // nutzt automatisch SMTP oder SendGrid – je nach MAIL_PROVIDER in .env
+  const mailTransport = require('./mail/transport');
+  if (typeof mailTransport.verify === 'function') {
+    // nicht blockierend starten; die Funktion loggt selbst [SMTP:init]/[SMTP:verify]
+    mailTransport.verify();
+  }
+} catch (e) {
+  console.warn('[Mail:init] verify skipped:', e.message);
+}
+
 
 /* ---------------------- Auth ---------------------- */
 app.use('/api/auth', authRoutes);
 
 /* ---------------------- Health ---------------------- */
+// Text-Variante (war bereits da)
 app.get('/health', (_req, res) => res.status(200).send('ok'));
+
+// JSON-Variante (für Monitoring / Smoke-Tests)
+app.get('/api/health', (_req, res) => {
+  const dbReady = mongoose.connection.readyState === 1 ? 'up' : 'down';
+  const mailEnabled = String(process.env.MAIL_ENABLED).toLowerCase() === 'true';
+  res.json({
+    ok: true,
+    env: process.env.NODE_ENV || 'development',
+    db: dbReady,
+    mail: { enabled: mailEnabled },
+    time: new Date().toISOString(),
+  });
+});
+
+app.use('/api/sys', /* authRequired, */ sysTestMail);
 
 /* ---------------------- PUBLIC (no tenant) ---------------------- */
 app.use('/api/tenants', tenantsPublicRoutes);
@@ -48,7 +106,6 @@ app.use('/api/sys/roles',   roleSysRoutes);
 app.use('/api/sys/users',   sysUsersRoutes);
 
 /* ---------------------- TENANT-SCOPE ---------------------- */
-// WICHTIG: Nur parametrisierte Routen mounten, kein zusätzliches /api/tenant davor.
 // Reihenfolge: erst tenantFromParam (setzt req.tenantId), dann authRequired.
 app.use('/api/tenant/:tenantId/admin',          tenantFromParam, authRequired, adminRoutes);
 app.use('/api/tenant/:tenantId/groups',         tenantFromParam, authRequired, groupRoutes);
@@ -69,21 +126,25 @@ app.use((err, _req, res, _next) => {
 });
 
 /* ---------------------- DB + Start ---------------------- */
-if (!process.env.MONGO_URI) {
-  console.error('MONGO_URI is not set');
+// In Prod MUSS MONGO_URI gesetzt sein; in Dev fallback auf Local
+const mongoUri =
+  process.env.MONGO_URI ||
+  (!isProd ? 'mongodb://localhost:27017/markdown-extended' : null);
+
+if (!mongoUri) {
+  console.error('MONGO_URI is not set (production)');
   process.exit(1);
 }
 
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-}).then(() => {
-  console.log('MongoDB connected');
-  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-}).catch(err => {
-  console.error('MongoDB connection error:', err);
-  process.exit(1);
-});
+mongoose.connect(mongoUri)
+  .then(() => {
+    console.log('MongoDB connected');
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  })
+  .catch(err => {
+    console.error('MongoDB connection error:', err);
+    process.exit(1);
+  });
 
 // Graceful shutdown
 process.on('SIGINT', async () => {

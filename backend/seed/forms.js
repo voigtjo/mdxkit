@@ -5,6 +5,30 @@ const FormVersion = require('../models/formVersion');
 require('dotenv').config();
 
 const examples = [
+    {
+    name: 'Kundenfragebogen',
+    text: `# Kundenfragebogen
+      Name: [Textfeld name]  
+      Geburtstag: [Datum geburt]  
+
+      ## Fachbereichsauswahl:
+      Fachbereich: [Select fachbereich]  
+      - Unterhaltung  
+      - Haushalt  
+      - Computer/ IT
+
+      ## Bitte beschreiben Sie Ihre Erfahrung: 
+      Beschreibung: [Textarea beschreibung]
+
+      ## Wie sind sie zufrieden? 
+      Zufriedenheit: [Radio zufriedenheit]  
+      - Top
+      - Gut  
+      - Mittel  
+      - nicht gut
+`
+
+  },
   {
     name: 'Einwilligung',
     text: `# Hauptüberschrift
@@ -21,10 +45,6 @@ Geburtstag: [Datum geburt]
 ### Zustimmung
 Ich stimme zu: [Checkbox zustimmung]
 
-[Tabelle Text | Name | Geburtstag | Zustimmung ]
-- 1. Eintrag | [Textfeld name_1] | [Datum geburt_1] | [Checkbox zustimmung_1]
-- 2. Eintrag | [Textfeld name_2] | [Datum geburt_2] | [Checkbox zustimmung_2]
-- 3. Eintrag | [Textfeld name_3] | [Datum geburt_3] | [Checkbox zustimmung_3]
 
 Unterschrift: [Signature unterschrift]`
 
