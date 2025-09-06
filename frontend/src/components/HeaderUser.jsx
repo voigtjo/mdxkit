@@ -1,4 +1,3 @@
-// src/components/HeaderUser.jsx
 import React from 'react';
 import { Box, Chip, IconButton, Tooltip, Typography } from '@mui/material';
 import LogoutIcon from '@mui/icons-material/Logout';

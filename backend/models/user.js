@@ -1,5 +1,5 @@
-// backend/models/user.js
 const mongoose = require('mongoose');
+const withUid = require('../plugins/withUid');
 
 const membershipSchema = new mongoose.Schema(
   {
@@ -11,12 +11,14 @@ const membershipSchema = new mongoose.Schema(
 
 const userSchema = new mongoose.Schema(
   {
-    // HINWEIS: Reguläre Tenant-User haben einen festen Tenant.
-    // SystemAdmins werden NICHT über tenant-scope API verwaltet (separater /api/sys Bereich).
-    tenantId: { type: String, required: true, index: true },
+    // NEU: stabile, servergenerierte Public-ID
+    userId: { type: String, unique: true, index: true },
+
+    // NEU: Tenant als ObjectId-Referenz (vorher: String)
+    tenant: { type: mongoose.Schema.Types.ObjectId, ref: 'Tenant', required: true, index: true },
 
     displayName: { type: String, required: true, trim: true },
-    email: { type: String, default: '', trim: true, index: true },
+    email: { type: String, default: '', trim: true, lowercase: true, index: true },
     status: { type: String, enum: ['active','suspended','deleted'], default: 'active' },
 
     // Admin-Flags
@@ -29,20 +31,26 @@ const userSchema = new mongoose.Schema(
     // Mitgliedschaften mit rollenbezogener Zuweisung
     memberships: { type: [membershipSchema], default: [] },
 
-    // Optional: lokale Auth (Passwort) – non-breaking, nur wenn du Login per PW nutzt
+    // Lokale Auth (falls genutzt)
     passwordHash: { type: String, default: '' }, // bcrypt Hash (leer = kein lokales Passwort)
-    tokenVersion: { type: Number, default: 0 }, // <— NEU
+    tokenVersion: { type: Number, default: 0 },
 
-    // Optional: Security/MFA – vorbereitet, aber nicht zwingend genutzt
+    // Security/MFA (optional)
     mfa: {
       totpEnabled: { type: Boolean, default: false },
-      totpSecret:  { type: String, default: '' },   // später verschlüsselt speichern
-      webauthnCredentials: { type: Array, default: [] }, // Registrierungseinträge (späteres WebAuthn)
+      totpSecret:  { type: String, default: '' },
+      webauthnCredentials: { type: Array, default: [] },
     },
 
     profile: { type: Object, default: {} },
   },
   { timestamps: true }
 );
-userSchema.index({ tenantId: 1, email: 1 }, { unique: true });
+
+// pro Tenant darf eine E-Mail nur einmal vorkommen
+userSchema.index({ tenant: 1, email: 1 }, { unique: true, sparse: true });
+
+// Public-ID automatisch vergeben: usr_************
+userSchema.plugin(withUid({ field: 'userId', prefix: 'usr_' }));
+
 module.exports = mongoose.model('User', userSchema);

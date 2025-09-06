@@ -1,4 +1,3 @@
-// src/components/LoginRegister.jsx
 import React, { useState } from 'react';
 import { Box, Button, Card, CardContent, Tab, Tabs, TextField, Typography, Alert } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
@@ -7,11 +6,8 @@ export default function LoginRegister() {
   const { doLogin, doRegister } = useAuth();
   const [tab, setTab] = useState(0);
 
-  // Registrierung
   const [tenantId, setTenantId] = useState('dev');
   const [displayName, setDisplayName] = useState('');
-
-  // Gemeinsame Felder
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -35,7 +31,7 @@ export default function LoginRegister() {
   async function onLogin(e) {
     e.preventDefault(); resetMsg();
     try {
-      const res = await doLogin({ email, password }); // ⬅️ kein tenantId beim Login
+      const res = await doLogin({ email, password }); // bewusst ohne tenantId
       if (res?.error) throw res;
       setInfo('Login erfolgreich.');
     } catch (e) {
@@ -59,7 +55,6 @@ export default function LoginRegister() {
             onSubmit={tab === 0 ? onLogin : onRegister}
             sx={{ display: 'grid', gap: 2 }}
           >
-            {/* Registrieren hat weiterhin Tenant-Feld */}
             {tab === 1 && (
               <TextField
                 label="Tenant ID"

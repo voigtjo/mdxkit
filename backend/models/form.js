@@ -1,30 +1,30 @@
 // backend/models/form.js
 const mongoose = require('mongoose');
+const withUid = require('../plugins/withUid');
 
 const formSchema = new mongoose.Schema({
-  tenantId: { type: String, required: true, index: true },
+  // Public-ID für schöne/ stabile URLs
+  formId: { type: String, unique: true, index: true },
 
-  // Technischer Formularname (pro Tenant)
-  name: { type: String, required: true },
+  // Tenant als ObjectId-Ref (Best Practice)
+  tenant: { type: mongoose.Schema.Types.ObjectId, ref: 'Tenant', required: true, index: true },
+
+  // Technischer Formularname (pro Tenant eindeutig)
+  name: { type: String, required: true, trim: true },
 
   // Versionierung (Index-Dokument)
   currentVersion: { type: Number, default: 1 },
-  validVersion: { type: Number },
+  validVersion:   { type: Number },
 
-  // Refs auf FormVersion-Dokumente
-  currentVersionId: { type: mongoose.Schema.Types.ObjectId, ref: 'FormVersion' },
-  validVersionId:   { type: mongoose.Schema.Types.ObjectId, ref: 'FormVersion' },
+  // Referenzen auf FormVersion-Dokumente
+  currentVersionId: { type: mongoose.Schema.Types.ObjectId, ref: 'FormVersion', default: null },
+  validVersionId:   { type: mongoose.Schema.Types.ObjectId, ref: 'FormVersion', default: null },
+}, { timestamps: true });
 
-  // (vorhandene, optional genutzte) Vorlagen-Refs
-  formFormatId: { type: mongoose.Schema.Types.ObjectId, ref: 'FormFormat', default: null },
-  formPrintId:  { type: mongoose.Schema.Types.ObjectId, ref: 'FormPrint',  default: null },
+// Eindeutigkeit pro Tenant + Name
+formSchema.index({ tenant: 1, name: 1 }, { unique: true });
 
-  updatedAt: { type: Date, default: Date.now },
-}, {
-  timestamps: false,
-});
-
-// Optional: Eindeutigkeit pro Tenant + Name
-// formSchema.index({ tenantId: 1, name: 1 }, { unique: true });
+// Public-ID automatisch vergeben (z. B. frm_ab12cd34ef56)
+formSchema.plugin(withUid({ field: 'formId', prefix: 'frm_' }));
 
 module.exports = mongoose.model('Form', formSchema);

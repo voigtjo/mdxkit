@@ -1,4 +1,3 @@
-// src/components/Home.jsx
 import React from 'react';
 import { Box, Paper, Stack, Button, Typography } from '@mui/material';
 import { Link, useParams } from 'react-router-dom';
@@ -10,14 +9,9 @@ export default function Home() {
   const { can } = usePerms();
   const { tenantId } = useParams();
 
-  // Admin-Bypass
   const isSysAdmin = !!user?.isSystemAdmin;
   const isTenantAdminHere = !!user?.isTenantAdmin && user?.tenantId === tenantId;
 
-  // Buttons:
-  // - SysAdmin: immer enabled
-  // - TenantAdmin im eigenen Tenant: immer enabled
-  // - sonst: wie bisher über Permissions
   const canAdminButton =
     isSysAdmin || isTenantAdminHere || can(P.FORM_CREATE) || can(P.FORM_PUBLISH);
 

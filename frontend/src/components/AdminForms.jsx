@@ -1,14 +1,12 @@
-// src/components/AdminForms.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Box, Typography, TextField, Button, Container,
   Table, TableHead, TableRow, TableCell, TableBody,
-  Paper, Stack, Divider, MenuItem, Select, FormControl,
-  InputLabel, Chip, IconButton, Tooltip, Dialog,
-  DialogTitle, DialogContent, DialogActions,
-  Checkbox, FormControlLabel, OutlinedInput,
+  Paper, Stack, Divider, Chip, IconButton, Tooltip,
+  Dialog, DialogTitle, DialogContent, DialogActions,
+  Checkbox, FormControlLabel, OutlinedInput, Select, MenuItem,
   Alert,
 } from '@mui/material';
 import { Edit as EditIcon } from '@mui/icons-material';
@@ -16,10 +14,7 @@ import { Edit as EditIcon } from '@mui/icons-material';
 import {
   getForms, uploadForm, releaseFormVersion,
   lockFormVersion, getFormVersionText,
-  assignTemplatesToForm,
 } from '@/api/adminApi';
-import { getFormats } from '@/api/formatApi';
-import { getPrints } from '@/api/printApi';
 import { useTenant } from '@/context/TenantContext';
 import { getAvailableForms, updateFormMeta } from '@/api/formApi';
 import { listGroups } from '@/api/groupApi';
@@ -29,9 +24,8 @@ const AdminForms = () => {
   const { loading: authLoading, user } = useAuth();
 
   const { can } = usePerms();
-  const canCreate    = can(P.FORM_CREATE);
-  const canAssignTpl = can(P.FORM_ASSIGN_TEMPLATES);
-  const canPublish   = can(P.FORM_PUBLISH);
+  const canCreate  = can(P.FORM_CREATE);
+  const canPublish = can(P.FORM_PUBLISH);
 
   const navigate = useNavigate();
   const { tenantId: tenantFromUrl } = useParams();
@@ -44,11 +38,6 @@ const AdminForms = () => {
   const [selectedVersion, setSelectedVersion] = useState(null);
   const [message, setMessage] = useState('');
   const [isReadOnly, setIsReadOnly] = useState(false);
-
-  const [formats, setFormats] = useState([]);
-  const [prints, setPrints] = useState([]);
-  const [selectedFormat, setSelectedFormat] = useState('');
-  const [selectedPrint, setSelectedPrint] = useState('');
 
   const [groups, setGroups] = useState([]);
   const [visOpen, setVisOpen] = useState(false);
@@ -76,12 +65,6 @@ const AdminForms = () => {
     setForms(merged);
   };
 
-  const loadTemplates = async () => {
-    const [fmt, pr] = await Promise.all([getFormats(tid), getPrints(tid)]);
-    setFormats(fmt || []);
-    setPrints(pr || []);
-  };
-
   const loadGroups = async () => {
     try {
       const data = await listGroups(tid);
@@ -90,9 +73,6 @@ const AdminForms = () => {
       console.error(e);
     }
   };
-
-  const getFormatName = (id) => formats.find(f => f._id === id)?.name || '–';
-  const getPrintName  = (id) => prints.find(p => p._id === id)?.name || '–';
 
   const groupOptions = useMemo(
     () => groups.map(g => ({ value: g._id, label: g.name })),
@@ -143,18 +123,6 @@ const AdminForms = () => {
     }
   };
 
-  const handleAssignTemplates = async () => {
-    if (!name) return;
-    try {
-      await assignTemplatesToForm(tid, name, selectedFormat || null, selectedPrint || null);
-      setMessage('✅ Vorlagen zugewiesen');
-      await loadForms();
-    } catch (err) {
-      console.error('❌ Fehler beim Zuweisen:', err);
-      setMessage('❌ Fehler beim Zuweisen der Vorlagen');
-    }
-  };
-
   const handleLoad = async (formName, version, mode = 'auto') => {
     try {
       const form = await getFormVersionText(tid, formName, version);
@@ -162,11 +130,8 @@ const AdminForms = () => {
       setText(form.text);
       setSelectedVersion(version);
 
-      const meta = forms.find((f) => f.name === formName);
       const isReadonly = mode === 'valid';
       setIsReadOnly(isReadonly);
-      setSelectedFormat(meta?.formFormatId || '');
-      setSelectedPrint(meta?.formPrintId || '');
       setMessage(`📝 Version ${version} von "${formName}" geladen${isReadonly ? " (gültig – nicht bearbeitbar)" : ""}`);
     } catch (err) {
       console.error("❌ Fehler beim Laden:", err);
@@ -180,8 +145,6 @@ const AdminForms = () => {
     setSelectedVersion(null);
     setIsReadOnly(false);
     setMessage('🧹 Formularfelder geleert – neuer Entwurf kann erstellt werden');
-    setSelectedFormat('');
-    setSelectedPrint('');
   };
 
   const openVisibilityDialog = (formRow) => {
@@ -209,27 +172,23 @@ const AdminForms = () => {
     }
   };
 
-  // 🔁 Bei Tenant-Wechsel neu laden + State resetten
+  // Reload bei Tenant-Wechsel
   useEffect(() => {
     if (authLoading || !user || !tid) return;
 
     let alive = true;
 
     setForms([]);
-    setFormats([]);
-    setPrints([]);
     setGroups([]);
     setName('');
     setText('');
     setSelectedVersion(null);
-    setSelectedFormat('');
-    setSelectedPrint('');
     setIsReadOnly(false);
     setMessage('');
 
     (async () => {
       try {
-        await Promise.all([loadForms(), loadTemplates(), loadGroups()]);
+        await Promise.all([loadForms(), loadGroups()]);
       } catch (e) {
         console.error(e);
       }
@@ -295,30 +254,6 @@ const AdminForms = () => {
           fullWidth
           InputProps={{ readOnly: isReadOnly }}
         />
-
-        {!isReadOnly && (
-          <>
-            <Divider sx={{ my: 3 }} />
-            <Typography variant="h6" gutterBottom>Vorlagen zuweisen (gültige Version erforderlich)</Typography>
-            <Stack direction="row" spacing={2}>
-              <FormControl sx={{ minWidth: 200 }}>
-                <InputLabel>Formatvorlage</InputLabel>
-                <Select value={selectedFormat} label="Formatvorlage" onChange={(e) => setSelectedFormat(e.target.value)}>
-                  <MenuItem value=""><em>Keine</em></MenuItem>
-                  {formats.map(f => (<MenuItem key={f._id} value={f._id}>{f.name}</MenuItem>))}
-                </Select>
-              </FormControl>
-              <FormControl sx={{ minWidth: 200 }}>
-                <InputLabel>Druckvorlage</InputLabel>
-                <Select value={selectedPrint} label="Druckvorlage" onChange={(e) => setSelectedPrint(e.target.value)}>
-                  <MenuItem value=""><em>Keine</em></MenuItem>
-                  {prints.map(p => (<MenuItem key={p._id} value={p._id}>{p.name}</MenuItem>))}
-                </Select>
-              </FormControl>
-              <Button variant="outlined" onClick={handleAssignTemplates} disabled={!canAssignTpl}>Zuweisen</Button>
-            </Stack>
-          </>
-        )}
       </Paper>
 
       <Divider sx={{ mb: 3 }} />
@@ -332,8 +267,6 @@ const AdminForms = () => {
             <TableCell>Gültige Version</TableCell>
             <TableCell>Arbeits-Version</TableCell>
             <TableCell>Arbeits-Version gültig?</TableCell>
-            <TableCell>Formatvorlage</TableCell>
-            <TableCell>Druckvorlage</TableCell>
             <TableCell>Sichtbarkeit</TableCell>
             <TableCell>Updatedatum</TableCell>
             <TableCell>Aktion</TableCell>
@@ -349,8 +282,6 @@ const AdminForms = () => {
               <TableCell>{f.validVersion || '–'}</TableCell>
               <TableCell>{f.currentVersion || '–'}</TableCell>
               <TableCell>{f.validVersion === f.currentVersion ? 'ja' : 'nein'}</TableCell>
-              <TableCell>{getFormatName(f.formFormatId)}</TableCell>
-              <TableCell>{getPrintName(f.formPrintId)}</TableCell>
               <TableCell>
                 {f.isGlobal ? (
                   <Chip size="small" label="global" />
@@ -379,14 +310,6 @@ const AdminForms = () => {
                   >
                     Lade aktuell
                   </Button>
-                  {/* tenantisierter Test-Link */}
-                  <a
-                    href={`/tenant/${encodeURIComponent(tid)}/formular-test/${f.name}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <Button variant="outlined" size="small" color="warning">Testen</Button>
-                  </a>
                   <Tooltip title="Sichtbarkeit ändern">
                     <IconButton size="small" onClick={() => openVisibilityDialog(f)}>
                       <EditIcon fontSize="small" />
@@ -418,23 +341,19 @@ const AdminForms = () => {
               label="Global (für alle Gruppen im Tenant sichtbar)"
             />
 
-            <FormControl fullWidth disabled={visIsGlobal}>
-              <InputLabel id="groups-label">Gruppen</InputLabel>
-              <Select
-                labelId="groups-label"
-                multiple
-                value={visGroupIds}
-                onChange={(e) => setVisGroupIds(e.target.value)}
-                input={<OutlinedInput label="Gruppen" />}
-                renderValue={(selected) => (
-                  <Stack direction="row" spacing={0.5} flexWrap="wrap">
-                    {(selected || []).map(id => (<Chip key={id} size="small" label={labelForGroup(id)} />))}
-                  </Stack>
-                )}
-              >
-                {groupOptions.map(go => (<MenuItem key={go.value} value={go.value}>{go.label}</MenuItem>))}
-              </Select>
-            </FormControl>
+            <Select
+              multiple
+              value={visGroupIds}
+              onChange={(e) => setVisGroupIds(e.target.value)}
+              input={<OutlinedInput label="Gruppen" />}
+              renderValue={(selected) => (
+                <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                  {(selected || []).map(id => (<Chip key={id} size="small" label={labelForGroup(id)} />))}
+                </Stack>
+              )}
+            >
+              {groupOptions.map(go => (<MenuItem key={go.value} value={go.value}>{go.label}</MenuItem>))}
+            </Select>
 
             {visError && <Typography color="error">{visError}</Typography>}
           </Stack>

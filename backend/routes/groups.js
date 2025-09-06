@@ -1,4 +1,3 @@
-// backend/routes/groups.js
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
@@ -14,9 +13,8 @@ const toObjectId = (v) => (mongoose.isValidObjectId(v) ? new mongoose.Types.Obje
 // LIST
 router.get('/', async (req, res) => {
   try {
-    const tenantId = req.tenantId;
-    const list = await Group.find({ status: { $ne: 'deleted' } })
-      .setOptions({ tenantId })
+    const tenant = req.tenant;
+    const list = await Group.find({ tenant, status: { $ne: 'deleted' } })
       .sort({ name: 1, key: 1 })
       .lean();
 
@@ -38,11 +36,11 @@ router.get('/', async (req, res) => {
 // DETAIL
 router.get('/:id', async (req, res) => {
   try {
-    const tenantId = req.tenantId;
+    const tenant = req.tenant;
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) return res.status(400).json({ error: 'Invalid id' });
 
-    const g = await Group.findOne({ _id: id }).setOptions({ tenantId }).lean();
+    const g = await Group.findOne({ _id: id, tenant }).lean();
     if (!g || g.status === 'deleted') return res.status(404).json({ error: 'Group nicht gefunden' });
 
     res.json({
@@ -63,7 +61,7 @@ router.get('/:id', async (req, res) => {
 // CREATE
 router.post('/', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, res) => {
   try {
-    const tenantId = req.tenantId;
+    const tenant = req.tenant;
     const { key, name, description = '', status = 'active', primaryAdminUserId = null } = req.body || {};
 
     if (!isKey(key)) return res.status(400).json({ error: 'key ist erforderlich: [a-z0-9][a-z0-9-_]+' });
@@ -73,15 +71,12 @@ router.post('/', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, res) =>
     if (primaryAdminUserId) {
       const oid = toObjectId(primaryAdminUserId);
       if (!oid) return res.status(400).json({ error: 'Ungültige primaryAdminUserId' });
-      primaryAdmin = await User.findOne({ _id: oid, status: { $ne: 'deleted' } })
-        .setOptions({ tenantId }).lean();
-      if (!primaryAdmin) {
-        return res.status(400).json({ error: 'primaryAdminUserId gehört nicht zu diesem Tenant oder existiert nicht' });
-      }
+      primaryAdmin = await User.findOne({ _id: oid, tenant, status: { $ne: 'deleted' } }).lean();
+      if (!primaryAdmin) return res.status(400).json({ error: 'primaryAdminUserId gehört nicht zu diesem Tenant oder existiert nicht' });
     }
 
     const doc = new Group({
-      tenantId,
+      tenant,
       key: key.trim(),
       name: name.trim(),
       description: String(description || ''),
@@ -107,7 +102,7 @@ router.post('/', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, res) =>
 // UPDATE
 router.put('/:id', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, res) => {
   try {
-    const tenantId = req.tenantId;
+    const tenant = req.tenant;
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) return res.status(400).json({ error: 'Invalid id' });
 
@@ -133,8 +128,7 @@ router.put('/:id', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, res) 
       } else {
         const oid = toObjectId(primaryAdminUserId);
         if (!oid) return res.status(400).json({ error: 'Ungültige primaryAdminUserId' });
-        const admin = await User.findOne({ _id: oid, status: { $ne: 'deleted' } })
-          .setOptions({ tenantId }).lean();
+        const admin = await User.findOne({ _id: oid, tenant, status: { $ne: 'deleted' } }).lean();
         if (!admin) return res.status(400).json({ error: 'primaryAdminUserId gehört nicht zu diesem Tenant oder existiert nicht' });
         updates.primaryAdminUserId = admin._id;
       }
@@ -143,9 +137,9 @@ router.put('/:id', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, res) 
     updates.updatedAt = new Date();
 
     const g = await Group.findOneAndUpdate(
-      { _id: id },
+      { _id: id, tenant },
       { $set: updates },
-      { new: true, runValidators: true, context: 'query', tenantId }
+      { new: true, runValidators: true, context: 'query' }
     ).lean();
 
     if (!g) return res.status(404).json({ error: 'Group nicht gefunden' });
@@ -167,14 +161,14 @@ router.put('/:id', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, res) 
 // DELETE (soft)
 router.delete('/:id', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, res) => {
   try {
-    const tenantId = req.tenantId;
+    const tenant = req.tenant;
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) return res.status(400).json({ error: 'Invalid id' });
 
     const g = await Group.findOneAndUpdate(
-      { _id: id },
+      { _id: id, tenant },
       { $set: { status: 'deleted', updatedAt: new Date() } },
-      { new: true, tenantId }
+      { new: true }
     ).lean();
 
     if (!g) return res.status(404).json({ error: 'Group nicht gefunden' });
@@ -184,18 +178,18 @@ router.delete('/:id', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, re
   }
 });
 
-// MEMBERS (read-only Übersicht): users mit Mitgliedschaft in der Group
+// MEMBERS
 router.get('/:id/members', async (req, res) => {
   try {
-    const tenantId = req.tenantId;
+    const tenant = req.tenant;
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) return res.status(400).json({ error: 'Invalid id' });
 
     const users = await User.find({
+      tenant,
       status: { $ne: 'deleted' },
       'memberships.groupId': new mongoose.Types.ObjectId(id)
     })
-      .setOptions({ tenantId })
       .select({ _id: 1, displayName: 1, email: 1, status: 1, memberships: 1 })
       .sort({ displayName: 1, email: 1 })
       .lean();

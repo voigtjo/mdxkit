@@ -30,7 +30,6 @@ export default function TenantSwitcher({ requireSelection = false }) {
   const handleApply = () => {
     if (!value) return;
     setTenantId(value);
-    // optional: window.location.reload();
   };
 
   return (
@@ -55,7 +54,7 @@ export default function TenantSwitcher({ requireSelection = false }) {
         <small>Oder manuell eingeben:</small>
         <input
           type="text"
-          placeholder="z. B. eurolab-01"
+          placeholder="z. B. eurolab-01"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem' }}

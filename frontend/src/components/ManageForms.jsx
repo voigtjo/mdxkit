@@ -38,7 +38,6 @@ const ManageForms = () => {
   const [formDataList, setFormDataList] = useState([]);
   const [message, setMessage] = useState('');
 
-  // ⬅️ Beim Tenant-Wechsel lokalen Zustand leeren, damit keine „alten“ Daten kurz sichtbar sind
   useEffect(() => {
     setForms([]);
     setUsers([]);
@@ -49,15 +48,14 @@ const ManageForms = () => {
     setMessage('');
   }, [tenantId]);
 
-  // ⬅️ Daten laden: jetzt abhängig von tenantId
   useEffect(() => {
     if (authLoading || !user || !tenantId) return;
     const init = async () => {
       try {
         const [f, u, d] = await Promise.all([
-          getAvailableForms(), // tenant-scope (Backend-Pfad nutzt :tenantId)
-          getUsers(),          // tenant-scope
-          getAllFormData(),    // tenant-scope
+          getAvailableForms(),
+          getUsers(),
+          getAllFormData(),
         ]);
         setForms(f || []);
         setUsers(u || []);
@@ -91,7 +89,7 @@ const ManageForms = () => {
 
   const handleAssign = async () => {
     if (!selectedForm || !selectedUser) return;
-    await assignForm(selectedForm, selectedUser); // Backend erwartet patientId
+    await assignForm(selectedForm, selectedUser);
     setMessage('✅ Formular zugewiesen');
     await refreshAllData();
   };
@@ -122,20 +120,26 @@ const ManageForms = () => {
     }
   };
 
-  const getUserName = (id) => users.find((u) => u._id === id)?.name || id;
+  const getUserLabel = (u) => u.displayName || u.name || u.email || u._id;
+  const getUserNameById = (id) => {
+    const u = users.find((x) => x._id === id);
+    return u ? getUserLabel(u) : id;
+  };
 
   if (authLoading || !tenantId) {
     return <Box sx={{ p: 4 }}><Alert severity="info">Lade…</Alert></Box>;
   }
 
-  return !canEdit ? (
-    <Box sx={{ p: 4 }}>
-      <Alert severity="warning">Keine Berechtigung für diesen Bereich.</Alert>
-    </Box>
-  ) : (
-    <Box
-      sx={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', pt: 6, px: 4 }}
-    >
+  if (!canEdit) {
+    return (
+      <Box sx={{ p: 4 }}>
+        <Alert severity="warning">Keine Berechtigung für diesen Bereich.</Alert>
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', pt: 6, px: 4 }}>
       <Box sx={{ width: '100%', maxWidth: 1200 }}>
         <Button
           component={Link}
@@ -174,7 +178,7 @@ const ManageForms = () => {
                 onChange={(e) => setSelectedUser(e.target.value)}
               >
                 {users.map((u) => (
-                  <MenuItem key={u._id} value={u._id}>{u.name}</MenuItem>
+                  <MenuItem key={u._id} value={u._id}>{getUserLabel(u)}</MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -186,7 +190,7 @@ const ManageForms = () => {
                   color="success"
                   onClick={handleAssign}
                   startIcon={<SendIcon />}
-                  disabled={!canEdit || !selectedForm || !selectedUser}
+                  disabled={!selectedForm || !selectedUser}
                 >
                   Zuweisen
                 </Button>
@@ -220,7 +224,7 @@ const ManageForms = () => {
                     (v{e.version})
                   </Typography>
                 </TableCell>
-                <TableCell>{getUserName(e.patientId)}</TableCell>
+                <TableCell>{getUserNameById(e.patientId)}</TableCell>
                 <TableCell>{e.status}</TableCell>
                 <TableCell>{new Date(e.updatedAt).toLocaleString()}</TableCell>
                 <TableCell>
@@ -242,7 +246,7 @@ const ManageForms = () => {
                     {e.status === 'offen' && (
                       <Tooltip title="Löschen">
                         <span>
-                          <IconButton onClick={() => handleDelete(e._id)} color="error" size="small" disabled={!canEdit}>
+                          <IconButton onClick={() => handleDelete(e._id)} color="error" size="small">
                             <DeleteIcon />
                           </IconButton>
                         </span>
@@ -253,14 +257,14 @@ const ManageForms = () => {
                       <>
                         <Tooltip title="Erneut zuweisen">
                           <span>
-                            <Button onClick={() => handleReopen(e._id)} color="warning" variant="outlined" size="small" disabled={!canEdit}>
+                            <Button onClick={() => handleReopen(e._id)} color="warning" variant="outlined" size="small">
                               Erneut zuweisen
                             </Button>
                           </span>
                         </Tooltip>
                         <Tooltip title="Akzeptieren (abschließen)">
                           <span>
-                            <Button onClick={() => handleAccept(e._id)} color="primary" variant="contained" size="small" startIcon={<CheckCircleIcon />} disabled={!canEdit}>
+                            <Button onClick={() => handleAccept(e._id)} color="primary" variant="contained" size="small" startIcon={<CheckCircleIcon />}>
                               Akzeptieren
                             </Button>
                           </span>

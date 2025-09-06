@@ -21,8 +21,6 @@ const manageRoutes  = require('./routes/manage');                // /api/tenant/
 const formRoutes    = require('./routes/form');                  // /api/tenant/:tenantId/form
 const usersRoutes   = require('./routes/users');                 // /api/tenant/:tenantId/users
 const groupRoutes   = require('./routes/groups');                // /api/tenant/:tenantId/groups
-const adminFormats  = require('./routes/adminFormats');          // /api/tenant/:tenantId/admin/formats
-const adminPrints   = require('./routes/adminPrints');           // /api/tenant/:tenantId/admin/prints
 
 const sysTestMail = require('./routes/sysTestMail');
 
@@ -95,6 +93,7 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+// System-Testroute (z. B. Mail)
 app.use('/api/sys', /* authRequired, */ sysTestMail);
 
 /* ---------------------- PUBLIC (no tenant) ---------------------- */
@@ -106,14 +105,13 @@ app.use('/api/sys/roles',   roleSysRoutes);
 app.use('/api/sys/users',   sysUsersRoutes);
 
 /* ---------------------- TENANT-SCOPE ---------------------- */
-// Reihenfolge: erst tenantFromParam (setzt req.tenantId), dann authRequired.
-app.use('/api/tenant/:tenantId/admin',          tenantFromParam, authRequired, adminRoutes);
-app.use('/api/tenant/:tenantId/groups',         tenantFromParam, authRequired, groupRoutes);
-app.use('/api/tenant/:tenantId/manage',         tenantFromParam, authRequired, manageRoutes);
-app.use('/api/tenant/:tenantId/form',           tenantFromParam, authRequired, formRoutes);
-app.use('/api/tenant/:tenantId/users',          tenantFromParam, authRequired, usersRoutes);
-app.use('/api/tenant/:tenantId/admin/formats',  tenantFromParam, authRequired, adminFormats);
-app.use('/api/tenant/:tenantId/admin/prints',   tenantFromParam, authRequired, adminPrints);
+// Reihenfolge: erst tenantFromParam (resolv’t :tenantId → req.tenant (ObjectId) & ggf. req.tenantPublicId),
+// dann authRequired.
+app.use('/api/tenant/:tenantId/admin',  tenantFromParam, authRequired, adminRoutes);
+app.use('/api/tenant/:tenantId/groups', tenantFromParam, authRequired, groupRoutes);
+app.use('/api/tenant/:tenantId/manage', tenantFromParam, authRequired, manageRoutes);
+app.use('/api/tenant/:tenantId/form',   tenantFromParam, authRequired, formRoutes);
+app.use('/api/tenant/:tenantId/users',  tenantFromParam, authRequired, usersRoutes);
 
 /* ---------------------- 404 & Error Handling ---------------------- */
 app.use((req, res) => {

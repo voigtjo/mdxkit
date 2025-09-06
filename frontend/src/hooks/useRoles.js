@@ -2,11 +2,6 @@
 import { useAuth } from '@/context/AuthContext';
 import { useParams } from 'react-router-dom';
 
-/**
- * Effektive Rollen + Admin-Override.
- * - Rollen werden als Union über alle memberships[*].roles gebaut.
- * - isTenantAdmin gilt nur im aktuellen :tenantId.
- */
 export function useRoles() {
   const { user, loading } = useAuth();
   const { tenantId } = useParams();

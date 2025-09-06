@@ -52,12 +52,3 @@ export async function getFormVersionText(tid, name, version) {
   return res.data; // { text, ... }
 }
 
-// Format-/Printvorlagen zuweisen
-export async function assignTemplatesToForm(tid, name, formFormatId, formPrintId) {
-  const res = await api.put(
-    `/admin/forms/${encodeURIComponent(name)}/assign-templates`,
-    { formFormatId, formPrintId },
-    withTenant(tid)
-  );
-  return res.data;
-}

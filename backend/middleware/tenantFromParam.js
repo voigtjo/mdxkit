@@ -1,22 +1,36 @@
 // backend/middleware/tenantFromParam.js
 const Tenant = require('../models/tenant');
 
-const CACHE = new Map();
-const TTL = 30_000;
+const CACHE = new Map();      // key -> { _id, ts }
+const TTL_MS = 60_000;        // 60s Cache
 
 module.exports = async function tenantFromParam(req, res, next) {
-  const { tenantId } = req.params; // <-- aus der URL
-  if (!tenantId) return res.status(400).json({ error: 'Missing tenant id in path' });
+  try {
+    const raw = req.params?.tenantId;
+    if (!raw) return res.status(400).json({ error: 'Missing tenant id in path' });
 
-  const cached = CACHE.get(tenantId);
-  if (!cached || Date.now() - cached.ts > TTL) {
-    const t = await Tenant.findOne({ tenantId }).select({ status: 1, _id: 0 });
+    // Wir interpretieren :tenantId als TENANT KEY (z.B. "dev", "acme", ...)
+    const key = String(raw).trim();
+
+    const cached = CACHE.get(key);
+    if (cached && (Date.now() - cached.ts) < TTL_MS) {
+      req.tenant     = cached._id; // ObjectId des Tenants (für DB-Queries)
+      req.tenantKey  = key;        // lesbarer Schlüssel
+      req.tenantId   = key;        // Backwards-Compat (falls noch irgendwo genutzt)
+      return next();
+    }
+
+    const t = await Tenant.findOne({ key }).select({ _id: 1, status: 1 }).lean();
     if (!t) return res.status(404).json({ error: 'Unknown tenant' });
-    CACHE.set(tenantId, { status: t.status, ts: Date.now() });
-  }
-  const info = CACHE.get(tenantId);
-  if (info.status !== 'active') return res.status(423).json({ error: 'Tenant suspended' });
+    if (t.status !== 'active') return res.status(423).json({ error: 'Tenant suspended' });
 
-  req.tenantId = tenantId; // wie bisher – alle Routen nutzen req.tenantId
-  return next();
+    CACHE.set(key, { _id: t._id, ts: Date.now() });
+
+    req.tenant     = t._id;  // ⬅️ ab jetzt überall als ObjectId verfügbar
+    req.tenantKey  = key;
+    req.tenantId   = key;    // Kompatibilität
+    return next();
+  } catch (e) {
+    return next(e);
+  }
 };

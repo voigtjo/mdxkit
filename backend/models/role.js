@@ -1,21 +1,16 @@
-// backend/models/role.js
 const mongoose = require('mongoose');
+const withUid = require('../plugins/withUid');
 
 /**
  * Systemweite Rollen-Definitionen (keine Tenant-Bindung).
- * WICHTIG: 'SystemAdmin' und 'TenantAdmin' gehören NICHT hierher
- * (das sind Booleans am User).
- *
- * Beispieleinträge:
- * { key: 'FormAuthor',      name: 'Form Author',      description: 'Darf Formulare anlegen/bearbeiten' }
- * { key: 'FormPublisher',   name: 'Form Publisher',   description: 'Darf Formulare veröffentlichen' }
- * { key: 'Operator',        name: 'Operator',         description: 'Bedient Forms/Workflows' }
- * { key: 'FormDataEditor',  name: 'Form Data Editor', description: 'Daten erfassen/bearbeiten' }
- * { key: 'FormDataApprover',name: 'Form Data Approver', description: 'Freigaben erteilen' }
+ * 'SystemAdmin' und 'TenantAdmin' bleiben Booleans am User.
  */
 const roleSchema = new mongoose.Schema(
   {
-    key:        { type: String, required: true, unique: true, trim: true, lowercase: false },
+    // NEU: stabile Public-ID
+    roleId:     { type: String, unique: true, index: true },
+
+    key:        { type: String, required: true, unique: true, trim: true },
     name:       { type: String, required: true, trim: true },
     description:{ type: String, default: '' },
     status:     { type: String, enum: ['active','suspended','deleted'], default: 'active' },
@@ -23,6 +18,7 @@ const roleSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-roleSchema.index({ key: 1 }, { unique: true });
+// Public-ID automatisch vergeben: rol_************
+roleSchema.plugin(withUid({ field: 'roleId', prefix: 'rol_' }));
 
 module.exports = mongoose.model('Role', roleSchema);

@@ -4,7 +4,7 @@ import * as authApi from '../api/authApi';
 const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
 
-// Kleiner Helfer: exp aus JWT (in ms seit Epoch) holen
+// exp aus JWT (ms seit Epoch)
 function getExpMs(jwt) {
   if (!jwt || typeof jwt !== 'string') return 0;
   const parts = jwt.split('.');
@@ -19,14 +19,38 @@ function getExpMs(jwt) {
 }
 
 export default function AuthProvider({ children }) {
-  const [access, setAccess] = useState(() => localStorage.getItem('accessToken') || '');
+  const [access, setAccess]   = useState(() => localStorage.getItem('accessToken') || '');
   const [refresh, setRefresh] = useState(() => localStorage.getItem('refreshToken') || '');
-  const [user, setUser] = useState(null);
+  const [user, setUser]       = useState(null);
   const [loading, setLoading] = useState(!!access);
 
   const refreshTimer = useRef(null);
 
-  // zentraler Setter, der auch den Timer neu plant
+  const scheduleAutoRefresh = (acc) => {
+    if (refreshTimer.current) {
+      clearTimeout(refreshTimer.current);
+      refreshTimer.current = null;
+    }
+    const expMs = getExpMs(acc);
+    if (!acc || !expMs) return;
+    const now = Date.now();
+    const delay = Math.max(5000, expMs - now - 60_000); // 60s vorher
+
+    refreshTimer.current = setTimeout(async () => {
+      try {
+        // immer frisch aus localStorage holen, um Closure-Staleness zu vermeiden
+        const rt = localStorage.getItem('refreshToken') || '';
+        if (!rt) throw new Error('no refresh');
+        const { accessToken, refreshToken, user } = await authApi.refresh(rt);
+        setTokens(accessToken, refreshToken);
+        if (user) setUser(user);
+      } catch {
+        setUser(null);
+        clearTokens();
+      }
+    }, delay);
+  };
+
   const setTokens = (nextAccess, maybeNextRefresh) => {
     setAccess(nextAccess || '');
     if (nextAccess) localStorage.setItem('accessToken', nextAccess);
@@ -40,39 +64,12 @@ export default function AuthProvider({ children }) {
       localStorage.removeItem('refreshToken');
     }
 
-    scheduleAutoRefresh(nextAccess); // ⬅️ Timer planen/clearen
+    scheduleAutoRefresh(nextAccess);
   };
 
-  const clearTokens = () => {
-    setTokens('', null);
-  };
+  const clearTokens = () => setTokens('', null);
 
-  // Timer planen: ~1 Minute vor Ablauf refreshen
-  const scheduleAutoRefresh = (acc) => {
-    if (refreshTimer.current) {
-      clearTimeout(refreshTimer.current);
-      refreshTimer.current = null;
-    }
-    const expMs = getExpMs(acc);
-    if (!acc || !expMs) return;
-    const now = Date.now();
-    // Safety: mind. 5s, sonst 60s vor Ablauf
-    const delay = Math.max(5000, expMs - now - 60_000);
-    refreshTimer.current = setTimeout(async () => {
-      try {
-        if (!refresh) throw new Error('no refresh');
-        const { accessToken, refreshToken, user } = await authApi.refresh(refresh);
-        setTokens(accessToken, refreshToken); // refreshToken kann undefined sein → bleibt bestehen
-        if (user) setUser(user);
-      } catch {
-        // Refresh fehlgeschlagen -> sauber abmelden
-        setUser(null);
-        clearTokens();
-      }
-    }, delay);
-  };
-
-  // Beim Mount: /me versuchen, sonst 1x refresh
+  // Initial: /me versuchen, sonst 1x refresh
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -106,15 +103,17 @@ export default function AuthProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Beim Fokus (Tab wird aktiv): wenn <2min Restzeit -> sofort refresh
+  // Beim Tab-Fokus ggf. vorzeitig refreshen
   useEffect(() => {
     function onFocus() {
-      if (!access || !refresh) return;
-      const expMs = getExpMs(access);
+      const acc = localStorage.getItem('accessToken') || '';
+      const rt  = localStorage.getItem('refreshToken') || '';
+      if (!acc || !rt) return;
+      const expMs = getExpMs(acc);
       if (!expMs) return;
       const remaining = expMs - Date.now();
       if (remaining < 120_000) {
-        authApi.refresh(refresh)
+        authApi.refresh(rt)
           .then(({ accessToken, refreshToken, user }) => {
             setTokens(accessToken, refreshToken);
             if (user) setUser(user);
@@ -126,31 +125,27 @@ export default function AuthProvider({ children }) {
       }
     }
     window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') onFocus();
-    });
+    const vis = () => { if (document.visibilityState === 'visible') onFocus(); };
+    document.addEventListener('visibilitychange', vis);
     return () => {
       window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onFocus);
+      document.removeEventListener('visibilitychange', vis);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [access, refresh]);
+  }, []);
 
   const value = useMemo(() => ({
     user, access, refresh, loading,
     async doRegister({ tenantId, displayName, email, password }) {
       return authApi.register({ tenantId, displayName, email, password });
     },
-    async doLogin({ tenantId, email, password }) {
-      const { accessToken, refreshToken, user } = await authApi.login({ tenantId, email, password });
+    async doLogin({ email, password }) {               // ⬅️ kein tenantId im Login mehr
+      const { accessToken, refreshToken, user } = await authApi.login({ email, password });
       setTokens(accessToken, refreshToken);
       setUser(user);
       return user;
     },
     async doLogout() {
-      try {
-        if (access) await authApi.logout(access);
-      } catch {}
+      try { if (access) await authApi.logout(access); } catch {}
       setUser(null);
       clearTokens();
     },

@@ -1,4 +1,3 @@
-// frontend/src/components/AdminGroups.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -33,7 +32,7 @@ export default function AdminGroups() {
   const load = async () => {
     setLoading(true);
     try {
-      const data = await listGroups();
+      const data = await listGroups(tid);
       setRows(data);
     } catch (e) {
       console.error(e);
@@ -42,7 +41,7 @@ export default function AdminGroups() {
     }
   };
 
-  useEffect(() => { load(); }, [tid]);
+  useEffect(() => { if (tid) load(); }, [tid]); // eslint-disable-line
 
   const title = useMemo(() => editingId ? 'Gruppe bearbeiten' : 'Neue Gruppe anlegen', [editingId]);
 
@@ -79,9 +78,9 @@ export default function AdminGroups() {
         status: 'active',
       };
       if (editingId) {
-        await updateGroup(editingId, payload);
+        await updateGroup(tid, editingId, payload);
       } else {
-        await createGroup(payload);
+        await createGroup(tid, payload);
       }
       setOpen(false);
       await load();
@@ -94,7 +93,7 @@ export default function AdminGroups() {
   const onDelete = async (row) => {
     if (!window.confirm(`Gruppe „${row.name}“ wirklich löschen?`)) return;
     try {
-      await deleteGroup(row._id);
+      await deleteGroup(tid, row._id);
       await load();
     } catch (e) {
       console.error(e);
@@ -104,7 +103,7 @@ export default function AdminGroups() {
 
   const onShowMembers = async (row) => {
     try {
-      const data = await listGroupMembers(row._id);
+      const data = await listGroupMembers(tid, row._id);
       setMembersGroupName(row.name);
       setMembers(data);
       setMembersOpen(true);
@@ -181,7 +180,7 @@ export default function AdminGroups() {
               value={form.key}
               onChange={(e) => setForm((f) => ({ ...f, key: e.target.value }))}
               fullWidth
-              disabled={Boolean(editingId)} // key beim Edit nicht ändern
+              disabled={Boolean(editingId)}
             />
             <TextField
               label="Name"

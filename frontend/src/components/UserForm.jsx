@@ -1,5 +1,4 @@
 // src/components/UserForm.jsx
-// ✅ UserForm mit formatText-Auswertung & finalem Read-Only bei 'angenommen'
 import React, { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import html2canvas from "html2canvas";
@@ -25,7 +24,6 @@ import {
 } from "@/api/formApi";
 
 import { parseForm } from "@/utils/parseForm.jsx";
-import { parseFormatOptions } from "@/utils/parseFormatOptions.js";
 import { useRoles } from '@/hooks/useRoles';
 
 const UserForm = () => {
@@ -33,11 +31,9 @@ const UserForm = () => {
   const canEditByRole = isSysAdmin || isTenantAdmin || hasAnyRole(['FormDataEditor','FormPublisher']);
 
   const { formName, patientId } = useParams();
-  // TEST: keine patientId im Pfad; PROD: patientId vorhanden
   const MODE = patientId ? "PROD" : "TEST";
 
   const [formText, setFormText] = useState("");
-  const [formatText, setFormatText] = useState("");
   const [values, setValues] = useState({});
   const [entryId, setEntryId] = useState(null);
   const [message, setMessage] = useState("");
@@ -58,7 +54,6 @@ const UserForm = () => {
             : await getFormForPatient(formName, patientId);
 
         setFormText(res.text);
-        setFormatText(res.format || "");
         setEntryId(res.data._id);
         setValues(res.data.data || {});
         setStatus(res.data.status || "neu");
@@ -71,7 +66,7 @@ const UserForm = () => {
 
         if (MODE === "PROD") {
           const patient = await getPatient(patientId);
-          setPatientName(patient.name);
+          setPatientName(patient.name || patient.displayName || '');
         } else {
           setPatientName("Max Mustermann");
         }
@@ -87,10 +82,9 @@ const UserForm = () => {
     setValues((prev) => ({ ...prev, [name]: value }));
   };
 
-  // In PROD editierbar nur bei 'offen' oder 'gespeichert'. In TEST immer editierbar.
+  // In PROD: editierbar nur bei 'offen' oder 'gespeichert'. In TEST: immer.
   const isEditableByStatus = MODE === "TEST" ? true : (status === "offen" || status === "gespeichert");
   const isEditable = canEditByRole && isEditableByStatus;
-  const formatOptions = parseFormatOptions(formatText);
 
   const handleSave = async () => {
     if (!isEditable) {
@@ -185,7 +179,6 @@ const UserForm = () => {
     }
   };
 
-  // PDF/Druck: erlauben bei Test-Mode ODER wenn freigegeben ODER wenn Bearbeitungsrecht
   const canOutput = MODE === 'TEST' || status === 'freigegeben' || canEditByRole;
 
   return (
@@ -233,7 +226,7 @@ const UserForm = () => {
         <Divider sx={{ mb: 3 }} />
 
         <Box ref={printRef}>
-          {parseForm(formText, values, handleChange, sigRef, !isEditable, formatOptions)}
+          {parseForm(formText, values, handleChange, sigRef, !isEditable /* formatOptions entfallen */)}
         </Box>
       </Paper>
     </Box>

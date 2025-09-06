@@ -1,8 +1,7 @@
 // Datei: src/controls/renderColumns.jsx
-
 import React from "react";
 import { Box } from "@mui/material";
-import parseCell from "./parseCell";
+import parseCell from "./parseCell.jsx";
 
 const renderColumns = ({ key, widths, contents, values, onChange, sigRef, isReadOnly }) => {
   const total = widths.reduce((a, b) => a + b, 0);
@@ -20,11 +19,11 @@ const renderColumns = ({ key, widths, contents, values, onChange, sigRef, isRead
               flexShrink: 0,
               display: "flex",
               justifyContent: "center",
-              alignItems: "center",     // optional: vertikal mittig
-              textAlign: "center",      // optional: für reinen Text
+              alignItems: "center",
+              textAlign: "center",
             }}
           >
-            {parseCell(content.trim(), values, onChange, sigRef, isReadOnly)}
+            {parseCell((content || "").trim(), values, onChange, sigRef, isReadOnly)}
           </Box>
         );
       })}

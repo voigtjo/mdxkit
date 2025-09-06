@@ -12,7 +12,6 @@ export default function TenantAdmin() {
   const [showSuspended, setShowSuspended] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Dialog State
   const [open, setOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [form, setForm] = useState({ tenantId: '', name: '' });
@@ -55,7 +54,6 @@ export default function TenantAdmin() {
       if (!form.name) { alert('Name erforderlich'); return; }
 
       if (editMode) {
-        // Namensänderung – Backend-Route muss existieren (PATCH /api/sys/tenants/:tenantId)
         await updateTenant(form.tenantId, { name: form.name });
       } else {
         await createTenant({ tenantId: form.tenantId, name: form.name });
@@ -70,7 +68,7 @@ export default function TenantAdmin() {
 
   const softDelete = async (tenantId) => {
     if (!window.confirm(`Tenant "${tenantId}" wirklich (soft) löschen? Er wird suspendiert.`)) return;
-    await setTenantStatus(tenantId, 'suspended'); // Soft-Delete = suspend
+    await setTenantStatus(tenantId, 'suspended');
     load();
   };
 
@@ -87,7 +85,7 @@ export default function TenantAdmin() {
   return (
     <Box sx={{ p: 2 }}>
       <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>Tenant‑Administration</Typography>
+        <Typography variant="h6" sx={{ fontWeight: 600 }}>Tenant-Administration</Typography>
         <FormControlLabel
           control={<Switch checked={showSuspended} onChange={(e) => setShowSuspended(e.target.checked)} />}
           label="auch gesperrte anzeigen"
@@ -100,7 +98,7 @@ export default function TenantAdmin() {
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell width={220}>Tenant‑ID</TableCell>
+              <TableCell width={220}>Tenant-ID</TableCell>
               <TableCell>Name</TableCell>
               <TableCell width={140}>Status</TableCell>
               <TableCell align="right" width={260}>Aktionen</TableCell>
@@ -130,7 +128,7 @@ export default function TenantAdmin() {
                       <IconButton onClick={() => activate(t.tenantId)}><CheckCircle /></IconButton>
                     </Tooltip>
                   )}
-                  <Tooltip title="Soft‑Delete (suspendieren)">
+                  <Tooltip title="Soft-Delete (suspendieren)">
                     <IconButton onClick={() => softDelete(t.tenantId)} color="error">
                       <DeleteOutline />
                     </IconButton>
@@ -145,12 +143,11 @@ export default function TenantAdmin() {
         </Table>
       </TableContainer>
 
-      {/* Dialog: Neu / Bearbeiten */}
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>{editMode ? 'Tenant bearbeiten' : 'Neuen Tenant anlegen'}</DialogTitle>
         <DialogContent sx={{ display: 'grid', gap: 2, pt: 2 }}>
           <TextField
-            label="Tenant‑ID"
+            label="Tenant-ID"
             value={form.tenantId}
             onChange={(e) => setForm(f => ({ ...f, tenantId: e.target.value.trim() }))}
             InputProps={{ readOnly: editMode }}

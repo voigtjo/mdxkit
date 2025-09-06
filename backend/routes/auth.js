@@ -1,6 +1,6 @@
-// backend/routes/auth.js
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const mongoose = require('mongoose');
 const User = require('../models/user');
 const Tenant = require('../models/tenant');
 
@@ -14,15 +14,18 @@ const {
 
 const router = express.Router();
 
-async function ensureTenant(tenantId) {
-  if (!tenantId) return null;
-  const t = await Tenant.findOne({ tenantId, status: 'active' });
-  return t || null;
+async function findActiveTenantByPublicOrKey(idOrKey) {
+  if (!idOrKey) return null;
+  return Tenant.findOne({
+    $or: [{ tenantId: idOrKey }, { key: idOrKey }],
+    status: 'active',
+  });
 }
 
 /**
  * POST /api/auth/register
  * Body: { tenantId, displayName, email, password }
+ * - tenantId: Public-ID (ten_...) ODER key (z.B. "dev")
  */
 router.post('/register', async (req, res, next) => {
   try {
@@ -31,17 +34,17 @@ router.post('/register', async (req, res, next) => {
       return res.status(400).json({ error: 'Missing fields' });
     }
 
-    const tenant = await ensureTenant(tenantId);
+    const tenant = await findActiveTenantByPublicOrKey(tenantId);
     if (!tenant) return res.status(400).json({ error: 'Unknown or inactive tenant' });
 
-    const existing = await User.findOne({ tenantId, email });
+    const existing = await User.findOne({ tenant: tenant._id, email: String(email).toLowerCase().trim() });
     const hash = await bcrypt.hash(password, 12);
 
     if (!existing) {
       const user = await User.create({
-        tenantId,
-        displayName,
-        email,
+        tenant: tenant._id,
+        displayName: String(displayName).trim(),
+        email: String(email).toLowerCase().trim(),
         status: 'active',
         isSystemAdmin: false,
         isTenantAdmin: false,
@@ -54,7 +57,7 @@ router.post('/register', async (req, res, next) => {
     }
 
     if (!existing.passwordHash) {
-      existing.displayName = existing.displayName || displayName;
+      existing.displayName = existing.displayName || String(displayName).trim();
       existing.passwordHash = hash;
       if (existing.status !== 'active') existing.status = 'active';
       await existing.save();
@@ -69,18 +72,28 @@ router.post('/register', async (req, res, next) => {
 
 /**
  * POST /api/auth/login
- * Body: { email, password }   ⬅️ tenantId fällt weg!
+ * Body: { email, password, tenantId? }  // tenantId optional; nötig, wenn Email mehrfach existiert
  */
 router.post('/login', async (req, res, next) => {
   try {
-    const { email, password } = req.body || {};
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Missing fields' });
+    const { email, password, tenantId } = req.body || {};
+    if (!email || !password) return res.status(400).json({ error: 'Missing fields' });
+
+    const q = { email: String(email).toLowerCase().trim() };
+    let user = null;
+
+    if (tenantId) {
+      const tenant = await findActiveTenantByPublicOrKey(tenantId);
+      if (!tenant) return res.status(400).json({ error: 'Unknown or inactive tenant' });
+      user = await User.findOne({ ...q, tenant: tenant._id });
+    } else {
+      const candidates = await User.find(q).limit(2);
+      if (candidates.length > 1) {
+        return res.status(400).json({ error: 'Email exists in multiple tenants, please pass tenantId.' });
+      }
+      user = candidates[0] || null;
     }
 
-    // User nur anhand der Email finden.
-    // Annahme: Emails sind global eindeutig – falls nicht, passe hier auf deine Logik an.
-    const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     if (user.status !== 'active') return res.status(403).json({ error: 'User not active' });
     if (!user.passwordHash) return res.status(401).json({ error: 'Password not set' });
@@ -88,12 +101,9 @@ router.post('/login', async (req, res, next) => {
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
 
-    // Tenant kommt aus user.tenantId; SysAdmin hat ggf. keinen Tenant
     const tokens = issueTokens(user);
     return res.json({ user: sanitizeUser(user), ...tokens });
-  } catch (e) {
-    next(e);
-  }
+  } catch (e) { next(e); }
 });
 
 /**
@@ -106,9 +116,7 @@ router.post('/refresh', async (req, res, next) => {
     if (!refreshToken) return res.status(400).json({ error: 'Missing refreshToken' });
     const { user, tokens } = await rotateRefreshToken(refreshToken, { rotate: !!rotate });
     return res.json({ user: sanitizeUser(user), ...tokens });
-  } catch (e) {
-    next(e);
-  }
+  } catch (e) { next(e); }
 });
 
 /**
@@ -124,7 +132,6 @@ router.post('/logout', authRequiredStrict, async (req, res, next) => {
 
 /**
  * GET /api/auth/me
- * Header: Authorization: Bearer <access>
  */
 router.get('/me', authRequiredStrict, async (req, res) => {
   return res.json({ user: sanitizeUser(req.user) });

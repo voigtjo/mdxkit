@@ -8,7 +8,7 @@ export default function AuthGate({ children }) {
 
   if (loading) {
     return <Box sx={{ display:'grid', placeItems:'center', height:'60vh' }}><CircularProgress /></Box>;
-    }
+  }
   if (!user) return <LoginRegister />;
   return children;
 }

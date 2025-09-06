@@ -1,215 +1,170 @@
 // backend/routes/admin.js
+// Tenant-scope admin endpoints for managing forms and versions
+// Mounted at: /api/tenant/:tenantId/admin
 const express = require('express');
 const router = express.Router();
 
-const { requirePerm, requireAnyPerm, PERMISSIONS: P } = require('../middleware/authz');
 const Form = require('../models/form');
 const FormVersion = require('../models/formVersion');
+const FormFormat = require('../models/formFormat');
+const FormPrint = require('../models/formPrint');
 
-/**
- * Formular hochladen oder aktualisieren (nur Author/Admin)
- */
-router.post('/upload-form', requirePerm(P.FORM_CREATE), async (req, res) => {
-  const { name, text } = req.body;
-  const tenantId = req.tenantId;
+// All routes here assume req.tenant is set by tenantFromParam and user is authenticated.
 
+function normName(name) {
+  return String(name || '').trim();
+}
+
+// GET /admin/forms – list all forms for tenant
+router.get('/forms', async (req, res, next) => {
   try {
-    // letzte Version im Tenant ermitteln
-    const latest = await FormVersion.find({ tenantId, name })
-      .sort({ version: -1 })
-      .limit(1);
+    const list = await Form.find({ tenantId: req.tenant }, { __v: 0 }).sort({ updatedAt: -1 }).lean();
+    res.json(list);
+  } catch (err) { next(err); }
+});
 
-    let version;
-    let newVersion;
-    let mode;
+// POST /admin/upload-form  { name, text } – create/update draft
+router.post('/upload-form', async (req, res, next) => {
+  try {
+    const { name, text } = req.body || {};
+    const n = normName(name);
+    if (!n || !text) return res.status(400).json({ error: 'name and text are required' });
 
-    if (latest.length > 0 && !latest[0].valid) {
-      // Offene (nicht gültige) Arbeitsversion überschreiben
-      latest[0].text = text;
-      await latest[0].save();
-      version = latest[0].version;
-      mode = 'update';
-    } else {
-      // Neue Version anlegen
-      version = latest.length > 0 ? latest[0].version + 1 : 1;
-      newVersion = new FormVersion({ tenantId, name, version, text, valid: false });
-      await newVersion.save();
-      mode = 'new';
+    let form = await Form.findOne({ tenantId: req.tenant, name: n });
+    if (!form) {
+      form = await Form.create({
+        tenantId: req.tenant,
+        name: n,
+        currentVersion: 1,
+        validVersion: null,
+        status: 'draft',
+      });
+      await FormVersion.create({
+        formId: form._id,
+        tenantId: req.tenant,
+        version: 1,
+        text,
+        status: 'draft',
+      });
+      return res.json({ success: true, mode: 'create', version: 1 });
     }
 
-    const currentVersionId = newVersion?._id || latest[0]?._id || null;
-
-    // Form-Metadaten im Tenant upserten
-    await Form.findOneAndUpdate(
-      { tenantId, name },
-      {
-        $set: {
-          name,
-          currentVersion: version,
-          currentVersionId,
-          updatedAt: new Date(),
-        },
-        $setOnInsert: { tenantId },
-      },
-      { upsert: true, new: true }
-    );
-
-    res.json({ success: true, version, mode });
-  } catch (err) {
-    console.error('❌ upload-form:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * Formularversion freigeben (Publisher/Admin)
- */
-router.post('/forms/:name/release', requirePerm(P.FORM_PUBLISH), async (req, res) => {
-  const { name } = req.params;
-  const tenantId = req.tenantId;
-
-  try {
-    const form = await Form.findOne({ tenantId, name }).populate('currentVersionId');
-    if (!form || !form.currentVersionId) {
-      return res.status(404).json({ error: 'Formular oder Version nicht gefunden' });
+    let version = form.currentVersion || 1;
+    const cur = await FormVersion.findOne({ formId: form._id, version });
+    if (cur && cur.status !== 'locked' && cur.status !== 'valid') {
+      cur.text = text;
+      cur.status = 'draft';
+      await cur.save();
+      form.status = 'draft';
+      await form.save();
+      return res.json({ success: true, mode: 'update', version });
     }
 
-    // alle bisherigen gültigen Versionen in diesem Tenant/Form invalidieren
-    await FormVersion.updateMany(
-      { tenantId, name, valid: true },
-      { $set: { valid: false } }
-    );
-
-    // aktuelle Arbeitsversion als gültig markieren
-    form.currentVersionId.valid = true;
-    await form.currentVersionId.save();
-
-    form.validVersion = form.currentVersion;
-    form.validVersionId = form.currentVersionId._id;
-    await form.save();
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error('❌ forms/:name/release:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * Liste aller Formulare (Author ODER Publisher ODER Admin)
- */
-router.get('/forms', requireAnyPerm(P.FORM_CREATE, P.FORM_PUBLISH), async (req, res) => {
-  const tenantId = req.tenantId;
-
-  // Debug optional
-  console.log('[ADMIN] GET /forms', {
-    url: req.originalUrl,
-    method: req.method,
-    tenantId,
-    userId: req.user?._id?.toString?.() || null,
-    isSysAdmin: !!req.user?.isSystemAdmin,
-    isTenantAdmin: !!req.user?.isTenantAdmin,
-  });
-
-  try {
-    const forms = await Form.find({ tenantId })
-      .populate('currentVersionId')
-      .populate('validVersionId')
-      .populate('formFormatId')
-      .populate('formPrintId')
-      .lean();
-
-    const result = forms.map((f) => ({
-      _id: String(f._id),
-      name: f.name,
-      currentVersion: f.currentVersionId?.version || null,
-      validVersion: f.validVersionId?.version || null,
-      status: f.validVersionId ? 'gültig' : 'neu',
-      updatedAt: f.currentVersionId?.updatedAt || null,
-      format: f.formFormatId?.name || null,
-      print: f.formPrintId?.name || null,
-      formFormatId: f.formFormatId?._id || null,
-      formPrintId: f.formPrintId?._id || null,
-    }));
-
-    res.json(result);
-  } catch (err) {
-    console.error('❌ get /forms:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * Formularversion abrufen (Author ODER Publisher)
- */
-router.get('/forms/:name/version/:version', requireAnyPerm(P.FORM_CREATE, P.FORM_PUBLISH), async (req, res) => {
-  const { name, version } = req.params;
-  const tenantId = req.tenantId;
-
-  try {
-    const form = await FormVersion.findOne({
-      tenantId,
-      name,
-      version: parseInt(version, 10),
+    version = version + 1;
+    await FormVersion.create({
+      formId: form._id,
+      tenantId: req.tenant,
+      version,
+      text,
+      status: 'draft',
     });
-    if (!form) return res.status(404).json({ error: 'Formularversion nicht gefunden' });
-    res.json(form);
-  } catch (err) {
-    console.error('❌ get version:', err);
-    res.status(500).json({ error: err.message });
-  }
+    form.currentVersion = version;
+    form.status = 'draft';
+    await form.save();
+    res.json({ success: true, mode: 'update', version });
+  } catch (err) { next(err); }
 });
 
-/**
- * Formular sperren (nur Admin/Publisher)
- */
-router.post('/forms/:name/lock', requirePerm(P.FORM_PUBLISH), async (req, res) => {
-  const { name } = req.params;
-  const { version } = req.body;
-  const tenantId = req.tenantId;
-
+// POST /admin/forms/:name/release  { version } – mark version valid
+router.post('/forms/:name/release', async (req, res, next) => {
   try {
-    if (typeof version !== 'number') {
-      return res.status(400).json({ error: 'version (Number) erforderlich' });
+    const name = normName(req.params.name);
+    const { version } = req.body || {};
+    if (!version || !Number.isInteger(version)) {
+      return res.status(400).json({ error: 'version must be integer' });
     }
 
-    const base = await Form.findOne({ tenantId, name });
-    if (!base) return res.status(404).json({ error: 'Formular nicht gefunden' });
+    const form = await Form.findOne({ tenantId: req.tenant, name });
+    if (!form) return res.status(404).json({ error: 'Form not found' });
 
-    const fv = await FormVersion.findOne({ tenantId, name, version });
-    if (!fv) return res.status(404).json({ error: 'Version nicht gefunden' });
+    const ver = await FormVersion.findOne({ formId: form._id, version });
+    if (!ver) return res.status(404).json({ error: 'Version not found' });
+    if (ver.status === 'locked') return res.status(400).json({ error: 'Version is locked' });
 
-    fv.status = 'gesperrt';
-    await fv.save();
+    ver.status = 'valid';
+    await ver.save();
+    form.validVersion = version;
+    form.status = 'valid';
+    await form.save();
 
     res.json({ success: true });
-  } catch (err) {
-    console.error('❌ lock:', err);
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { next(err); }
 });
 
-/**
- * Format-/Printvorlage zuweisen (Publisher/Admin)
- */
-router.put('/forms/:name/assign-templates', requirePerm(P.FORM_ASSIGN_TEMPLATES), async (req, res) => {
-  const { name } = req.params;
-  const { formFormatId, formPrintId } = req.body;
-  const tenantId = req.tenantId;
-
+// POST /admin/forms/:name/lock  { version } – lock a version
+router.post('/forms/:name/lock', async (req, res, next) => {
   try {
-    const form = await Form.findOne({ tenantId, name });
-    if (!form) return res.status(404).json({ error: 'Formular nicht gefunden' });
+    const name = normName(req.params.name);
+    const { version } = req.body || {};
+    if (!version || !Number.isInteger(version)) {
+      return res.status(400).json({ error: 'version must be integer' });
+    }
 
-    if (formFormatId !== undefined) form.formFormatId = formFormatId;
-    if (formPrintId !== undefined) form.formPrintId = formPrintId;
+    const form = await Form.findOne({ tenantId: req.tenant, name });
+    if (!form) return res.status(404).json({ error: 'Form not found' });
 
+    const ver = await FormVersion.findOne({ formId: form._id, version });
+    if (!ver) return res.status(404).json({ error: 'Version not found' });
+
+    ver.status = 'locked';
+    await ver.save();
+    if (form.currentVersion === version && form.status !== 'valid') {
+      form.status = 'locked';
+      await form.save();
+    }
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// GET /admin/forms/:name/version/:version – fetch text of specific version
+router.get('/forms/:name/version/:version', async (req, res, next) => {
+  try {
+    const name = normName(req.params.name);
+    const version = parseInt(req.params.version, 10);
+    if (!version) return res.status(400).json({ error: 'Invalid version' });
+
+    const form = await Form.findOne({ tenantId: req.tenant, name });
+    if (!form) return res.status(404).json({ error: 'Form not found' });
+
+    const ver = await FormVersion.findOne({ formId: form._id, version });
+    if (!ver) return res.status(404).json({ error: 'Version not found' });
+
+    res.json({ text: ver.text, version: ver.version, status: ver.status, formId: form._id });
+  } catch (err) { next(err); }
+});
+
+// PUT /admin/forms/:name/assign-templates  { formFormatId?, formPrintId? }
+router.put('/forms/:name/assign-templates', async (req, res, next) => {
+  try {
+    const name = normName(req.params.name);
+    const { formFormatId = null, formPrintId = null } = req.body || {};
+    const form = await Form.findOne({ tenantId: req.tenant, name });
+    if (!form) return res.status(404).json({ error: 'Form not found' });
+
+    if (formFormatId) {
+      const ok = await FormFormat.findOne({ _id: formFormatId, tenantId: req.tenant });
+      if (!ok) return res.status(400).json({ error: 'Invalid format template id' });
+    }
+    if (formPrintId) {
+      const ok = await FormPrint.findOne({ _id: formPrintId, tenantId: req.tenant });
+      if (!ok) return res.status(400).json({ error: 'Invalid print template id' });
+    }
+
+    form.formFormatId = formFormatId || null;
+    form.formPrintId  = formPrintId  || null;
     await form.save();
     res.json({ success: true });
-  } catch (err) {
-    console.error('❌ assign-templates:', err);
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

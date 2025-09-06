@@ -19,21 +19,9 @@ export default function RoleVisible({ allow = [], children, fallback = null }) {
     String(user.tenantId) === String(tenantId);
 
   const ok =
-    isSysAdmin ||            // SysAdmin: immer
-    isTenantAdminHere ||     // TenantAdmin: im eigenen Tenant
+    isSysAdmin ||
+    isTenantAdminHere ||
     hasAnyRole(allow);
-
-  // --- DEBUG-LOGGING ---
-/*   console.groupCollapsed('[RoleVisible]');
-  console.log('Pfad-TenantId:', tenantId);
-  console.log('User:', user);
-  console.log('isSysAdmin:', isSysAdmin);
-  console.log('isTenantAdmin:', isTenantAdmin);
-  console.log('isTenantAdminHere:', isTenantAdminHere);
-  console.log('allow:', allow);
-  console.log('hasAnyRole(allow):', hasAnyRole(allow));
-  console.log('ok (entscheidend):', ok);
-  console.groupEnd(); */
 
   return ok ? children : fallback;
 }

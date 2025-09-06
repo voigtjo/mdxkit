@@ -8,26 +8,27 @@ const TenantContext = createContext({
   canSwitchTenant: false,
 });
 
-/**
- * Quelle der Wahrheit:
- * - Nicht-SysAdmin → tenantId = user.tenantId (fix; kein Wechsel)
- * - SysAdmin → darf Tenant wählen; initial aus URL (/tenant/:id) oder sonst user.tenantId
- * - URL hat Priorität beim Initialisieren (verhindert Flashback auf alten LocalStorage)
- */
 export const TenantProvider = ({ children }) => {
   const { user, loading } = useAuth();
 
   const [tenantId, setTenantIdState] = useState(null);
   const [canSwitchTenant, setCanSwitchTenant] = useState(false);
 
-  // 1) Beim ersten Mount: tenantId aus URL ziehen, falls vorhanden
+  // 1) Initial: aus URL, sonst aus localStorage
   useEffect(() => {
     const m = window.location.pathname.match(/^\/tenant\/([^/]+)/);
     const fromPath = m?.[1] || null;
-    if (fromPath) setTenantIdState(fromPath);
+    if (fromPath) {
+      setTenantIdState(fromPath);
+    } else {
+      try {
+        const stored = localStorage.getItem('tenantId');
+        if (stored) setTenantIdState(stored);
+      } catch {}
+    }
   }, []);
 
-  // 2) Sobald Auth da ist: SysAdmin-Erkennung + Locking/Default
+  // 2) Reagieren auf Auth: SysAdmin darf wechseln; andere sind gelockt auf user.tenantId
   useEffect(() => {
     if (loading) return;
 
@@ -35,21 +36,30 @@ export const TenantProvider = ({ children }) => {
     setCanSwitchTenant(isSys);
 
     if (isSys) {
-      // SysAdmin: Wenn noch kein Tenant gesetzt, auf eigenen (falls vorhanden) setzen
-      if (!tenantId) setTenantIdState(user?.tenantId || null);
+      if (!tenantId) {
+        const candidate = user?.tenantId || null;
+        if (candidate) setTenantIdState(candidate);
+      }
       return;
     }
 
-    // Nicht-SysAdmin: tenantId immer aus dem User übernehmen (kein Wechsel erlaubt)
     const userTid = user?.tenantId || null;
     if (tenantId !== userTid) setTenantIdState(userTid);
   }, [loading, user, tenantId]);
 
+  // Persistenz
+  useEffect(() => {
+    try {
+      if (tenantId) localStorage.setItem('tenantId', tenantId);
+      else localStorage.removeItem('tenantId');
+    } catch {}
+  }, [tenantId]);
+
   const setTenantId = (id) => {
-    if (!canSwitchTenant) return; // nur SysAdmin darf wechseln
+    if (!canSwitchTenant) return;
     const trimmed = (id || '').trim();
     if (trimmed && !/^[a-zA-Z0-9_-]{2,64}$/.test(trimmed)) {
-      alert('Ungültige Tenant-ID (erlaubt: a–Z, 0–9, _ , -, Länge 2–64)');
+      alert('Ungültige Tenant-ID (a–Z, 0–9, _ , -, 2–64)');
       return;
     }
     setTenantIdState(trimmed || null);

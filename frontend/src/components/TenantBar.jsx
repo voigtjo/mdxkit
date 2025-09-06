@@ -18,7 +18,7 @@ export default function TenantBar() {
         return;
       }
       try {
-        const list = await getActiveTenants(); // [{ tenantId, name }]
+        const list = await getActiveTenants();
         if (mounted) setTenants(list || []);
       } catch {
         if (mounted) setTenants([]);
@@ -27,7 +27,6 @@ export default function TenantBar() {
     return () => { mounted = false; };
   }, [canSwitchTenant]);
 
-  // Nur SysAdmin sieht die linke (grüne) Leiste
   if (!canSwitchTenant) return null;
 
   const replaceTenantInPath = (pathname, newTid) => {
@@ -41,14 +40,8 @@ export default function TenantBar() {
 
   const handleChange = (e) => {
     const newTid = e.target.value;
-
-    // 1) Context setzen
     setTenantId(newTid);
-
-    // 2) Persistieren – wird von Backend-Middleware/Interceptors genutzt
     try { localStorage.setItem('tenantId', newTid); } catch {}
-
-    // 3) gleiche Route beibehalten, nur :tenantId ersetzen → triggert alle useParams-/useEffect-Ketten
     const newPath = replaceTenantInPath(location.pathname, newTid);
     navigate(newPath, { replace: false });
   };

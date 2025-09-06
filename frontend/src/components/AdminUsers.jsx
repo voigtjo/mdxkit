@@ -1,5 +1,4 @@
-// frontend/src/components/AdminUsers.jsx
-// Ergänzt: Spalten "Default-Gruppe" und "Rollen (A/P/O/E/R)" in der Übersicht
+// src/components/AdminUsers.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -22,13 +21,12 @@ const emptyForm = {
   defaultGroupId: null,
 };
 
-/* ===== Rollen-Kürzel & Sortierreihenfolge ===== */
 const ROLE_TO_INITIAL = {
   FormAuthor: 'A',
   FormPublisher: 'P',
   Operator: 'O',
   FormDataEditor: 'E',
-  FormDataApprover: 'R', // R = Release
+  FormDataApprover: 'R',
 };
 const ROLE_ORDER = ['FormAuthor','FormPublisher','Operator','FormDataEditor','FormDataApprover'];
 
@@ -64,7 +62,7 @@ export default function AdminUsers() {
     setLoading(true);
     try {
       const [usersData, groupsData, rolesData] = await Promise.all([
-        getUsers(), listGroups(), listRoles()
+        getUsers(), listGroups(tid), listRoles()
       ]);
       setRows(usersData);
       setGroups(groupsData);
@@ -75,7 +73,7 @@ export default function AdminUsers() {
       setLoading(false);
     }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tid]);
+  useEffect(() => { if (tid) load(); /* eslint-disable-next-line */ }, [tid]);
 
   const groupOptions = useMemo(() => groups.map(g => ({ value: g._id, label: g.name })), [groups]);
   const groupsById = useMemo(() => {
@@ -224,8 +222,8 @@ export default function AdminUsers() {
               <TableCell>Name</TableCell>
               <TableCell>E-Mail</TableCell>
               <TableCell>Status</TableCell>
-              <TableCell>Default-Gruppe</TableCell>   {/* ⬅︎ NEU */}
-              <TableCell>Rollen</TableCell>            {/* ⬅︎ NEU */}
+              <TableCell>Default-Gruppe</TableCell>
+              <TableCell>Rollen</TableCell>
               <TableCell>TenantAdmin</TableCell>
               <TableCell align="right" style={{ width: 140 }}>Aktionen</TableCell>
             </TableRow>
@@ -242,8 +240,8 @@ export default function AdminUsers() {
                   <TableCell>{r.displayName || r.name || '—'}</TableCell>
                   <TableCell>{r.email || '—'}</TableCell>
                   <TableCell><Chip size="small" label={r.status || 'active'} /></TableCell>
-                  <TableCell>{defName}</TableCell> {/* ⬅︎ NEU */}
-                  <TableCell>                    {/* ⬅︎ NEU */}
+                  <TableCell>{defName}</TableCell>
+                  <TableCell>
                     <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
                       {chips.length === 0 ? (
                         <Chip size="small" variant="outlined" label="—" />
@@ -326,13 +324,6 @@ export default function AdminUsers() {
                 <MenuItem value="yes">yes</MenuItem>
               </Select>
             </FormControl>
-
-            {/* Hinweis, wenn keine Rollen existieren */}
-            {roleOptions.length === 0 && (
-              <Typography variant="body2" color="warning.main">
-                Keine Rollen definiert. Lege welche unter /api/sys/roles an (oder seed per Script), z. B.: FormAuthor, FormPublisher, Operator, FormDataEditor, FormDataApprover.
-              </Typography>
-            )}
 
             <Stack spacing={1}>
               <Stack direction="row" justifyContent="space-between" alignItems="center">

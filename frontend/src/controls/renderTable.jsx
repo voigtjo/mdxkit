@@ -1,19 +1,28 @@
 // Datei: src/controls/renderTable.jsx
-
 import React from "react";
 import { Box } from "@mui/material";
-import parseCell from "./parseCell";
+import parseCell from "./parseCell.jsx";
 
-const renderTable = ({ key, rows, values, onChange, sigRef, isReadOnly }) => {
+const renderTable = ({ key, rows = [], values, onChange, sigRef, isReadOnly }) => {
   if (!rows.length) return null;
 
-  // Erste Zeile enthält: [Tabelle (... | ... | ...)] → Header extrahieren
-  const headerMatch = rows[0].match(/^\[Tabelle\s*\((.*?)\)\s*]/);
-  if (!headerMatch) return null;
+  // Header robust parsen:
+  // [Tabelle (A | B | C)]  ODER  [Tabelle A | B | C]
+  const rawHeader = rows[0];
+  let headers = null;
 
-  const headers = headerMatch[1].split("|").map((h) => h.trim());
+  // 1) Mit Klammern
+  let m = rawHeader.match(/^\[Tabelle\s*\((.*?)\)\s*]$/);
+  if (m) {
+    headers = m[1].split("|").map((h) => h.trim());
+  } else {
+    // 2) Ohne Klammern
+    m = rawHeader.match(/^\[Tabelle\s+(.*?)]$/);
+    if (m) headers = m[1].split("|").map((h) => h.trim());
+  }
 
-  // Restliche Zeilen mit - beginnen und enthalten Zellen mit |
+  if (!headers) return null;
+
   const dataRows = rows.slice(1).filter((line) => line.trim().startsWith("-"));
 
   return (
@@ -27,7 +36,7 @@ const renderTable = ({ key, rows, values, onChange, sigRef, isReadOnly }) => {
           {headers.map((header, idx) => (
             <th
               key={idx}
-              style={{ border: "1px solid #ccc", padding: "8px", backgroundColor: "#f7f7f7" }}
+              style={{ border: "1px solid #ccc", padding: "8px", backgroundColor: "#f7f7f7", textAlign: "left" }}
             >
               {header}
             </th>
@@ -36,11 +45,7 @@ const renderTable = ({ key, rows, values, onChange, sigRef, isReadOnly }) => {
       </thead>
       <tbody>
         {dataRows.map((line, rowIdx) => {
-          const cells = line
-            .replace(/^\s*-\s*/, "")
-            .split("|")
-            .map((c) => c.trim());
-
+          const cells = line.replace(/^\s*-\s*/, "").split("|").map((c) => c.trim());
           return (
             <tr key={rowIdx}>
               {cells.map((cell, colIdx) => (

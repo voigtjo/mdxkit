@@ -1,4 +1,3 @@
-// src/components/AdminIndex.jsx
 import React, { useMemo, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Box, Paper, Tabs, Tab, Stack, Typography } from '@mui/material';
@@ -22,7 +21,6 @@ export default function AdminIndex() {
   const active = useActiveAdminTab();
   const { can } = usePerms();
 
-  // Forms-Tab nur anzeigen, wenn Author ODER Publisher Rechte vorhanden sind
   const showForms = can(P.FORM_CREATE) || can(P.FORM_PUBLISH);
   const showUsers = true;
   const showGroups = true;
@@ -35,7 +33,6 @@ export default function AdminIndex() {
 
   const safeActive = available.includes(active) ? active : (available[0] || 'users');
 
-  // Wenn aktiver Tab nicht verfügbar ist, auf ersten verfügbaren Tab umleiten
   useEffect(() => {
     if (safeActive !== active) {
       if (safeActive === 'forms') navigate(`/tenant/${tenantId}/admin/forms`, { replace: true });

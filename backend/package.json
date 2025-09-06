@@ -19,6 +19,7 @@
     "express": "^4.19.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^7.6.0",
+    "nanoid": "^5.1.5",
     "nodemailer": "^7.0.6"
   },
   "devDependencies": {

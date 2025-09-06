@@ -1,45 +1,70 @@
-const base = '/api/auth';
+// frontend/src/api/authApi.js
 
+// Dev: Vite-Proxy -> '/api'
+// Prod: VITE_API_BASE='https://<backend>.onrender.com/api'
+const API_ROOT = (import.meta.env?.VITE_API_BASE || '/api');
+const base = `${API_ROOT}/auth`;
+
+// Einheitliches JSON-Fetch mit sauberen Fehlern
+async function jfetch(url, opts = {}) {
+  const res = await fetch(url, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(opts.headers || {}),
+    },
+  });
+
+  const contentType = res.headers.get('content-type') || '';
+  const body = contentType.includes('application/json') ? await res.json() : await res.text();
+
+  if (!res.ok) {
+    // serverseitige { error } Objekte beibehalten
+    if (body && typeof body === 'object' && body.error) throw body;
+    throw { error: body || res.statusText || 'Request failed' };
+  }
+  return body;
+}
+
+/** Registrierung: { tenantId, displayName, email, password } */
 export async function register(payload) {
-  const res = await fetch(`${base}/register`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+  return jfetch(`${base}/register`, {
+    method: 'POST',
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw await res.json();
-  return res.json();
 }
 
-export async function login(payload) {
-  const res = await fetch(`${base}/login`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+/**
+ * Login:
+ * - Minimal: { email, password }
+ * - Optional (falls gleiche Mail in mehreren Tenants existiert): + tenantId
+ */
+export async function login(payload /* { email, password, tenantId? } */) {
+  return jfetch(`${base}/login`, {
+    method: 'POST',
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw await res.json();
-  return res.json();
 }
 
+/** Aktueller Benutzer (aus Access-Token) */
 export async function me(accessToken) {
-  const res = await fetch(`${base}/me`, {
+  return jfetch(`${base}/me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!res.ok) throw await res.json();
-  return res.json();
 }
 
+/** Refresh-Token verwenden (optional mit rotate=true für Hard-Rotation) */
 export async function refresh(refreshToken, rotate = false) {
-  const res = await fetch(`${base}/refresh`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+  return jfetch(`${base}/refresh`, {
+    method: 'POST',
     body: JSON.stringify({ refreshToken, rotate }),
   });
-  if (!res.ok) throw await res.json();
-  return res.json();
 }
 
+/** Logout: invalidiert Refresh-Tokens (serverseitig über Token-Version) */
 export async function logout(accessToken) {
-  const res = await fetch(`${base}/logout`, {
+  return jfetch(`${base}/logout`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!res.ok) throw await res.json();
-  return res.json();
 }

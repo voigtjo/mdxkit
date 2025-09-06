@@ -1,12 +1,4 @@
-// UserForm.jsx
-// (Hinweis: parseForm muss mit "formatOptions" erweitert werden, siehe parseForm.jsx)
-
-// Änderungen im UserForm (nach deinem Stand):
-// – Neues State: formatText
-// – formatOptions werden aus formatText geparsed
-// – parseForm bekommt formatOptions als 5. Parameter
-
-// parseForm.jsx (Komplett mit Formatlogik für Überschriftennummerierung)
+// utils/parseForm.jsx
 import React from "react";
 import { Box, Typography } from "@mui/material";
 import renderTextField from "../controls/renderTextField.jsx";
@@ -44,9 +36,6 @@ export function parseForm(text, values = {}, handleChange, sigRef, isReadOnly, f
   };
 
   const renderHeading = (level, line, idx) => {
-    console.log(`🧩 Heading erkannt: Level ${level}, Inhalt: "${line}"`);
-    console.log("➡️ Aktuelle formatOptions:", formatOptions);
-
     const clean = line.replace(/^#+\s*/, "").trim();
     let numberedLabel = clean;
 
@@ -56,19 +45,15 @@ export function parseForm(text, values = {}, handleChange, sigRef, isReadOnly, f
       !(level === 1 && formatOptions.excludeFirstLevel1)
     ) {
       if (level === 2) {
-        headingCounts[2]++;
-        headingCounts[3] = 0;
-        headingCounts[4] = 0;
+        headingCounts[2]++; headingCounts[3] = 0; headingCounts[4] = 0;
         numberedLabel = `${headingCounts[2]}. ${clean}`;
       } else if (level === 3) {
-        headingCounts[3]++;
-        headingCounts[4] = 0;
+        headingCounts[3]++; headingCounts[4] = 0;
         numberedLabel = `${headingCounts[2]}.${headingCounts[3]}. ${clean}`;
       } else if (level === 4) {
         headingCounts[4]++;
         numberedLabel = `${headingCounts[2]}.${headingCounts[3]}.${headingCounts[4]}. ${clean}`;
       }
-      console.log("🔢 Nummeriertes Label:", numberedLabel);
     }
 
     const variants = { 1: "h5", 2: "h6", 3: "subtitle1", 4: "body1" };
@@ -82,6 +67,7 @@ export function parseForm(text, values = {}, handleChange, sigRef, isReadOnly, f
   for (let idx = 0; idx < lines.length; idx++) {
     const line = lines[idx];
 
+    // Headings (# … ####)
     if (/^#{1,4}\s+/.test(line)) {
       flushMarkdown(idx);
       const level = line.match(/^#+/)[0].length;
@@ -89,18 +75,13 @@ export function parseForm(text, values = {}, handleChange, sigRef, isReadOnly, f
       continue;
     }
 
-    // Spalten-Syntax: [Spalten 1:1 (Inhalt1 | Inhalt2)]
+    // Spalten: [Spalten 1:1 (Inhalt1 | Inhalt2)]
     if (line.startsWith("[Spalten ")) {
       flushMarkdown(idx);
-
       const match = line.match(/^\[Spalten\s+([0-9:]+)\s*\((.*?)\)]$/);
       if (match) {
-        const ratioStr = match[1];
-        const contentStr = match[2];
-
-        const widths = ratioStr.split(":").map((r) => parseInt(r.trim(), 10));
-        const contents = contentStr.split("|");
-
+        const widths = match[1].split(":").map((r) => parseInt(r.trim(), 10));
+        const contents = match[2].split("|");
         if (widths.length === contents.length) {
           elements.push(
             renderColumns({
@@ -110,86 +91,38 @@ export function parseForm(text, values = {}, handleChange, sigRef, isReadOnly, f
               values,
               onChange: handleChange,
               sigRef,
-              isReadOnly: false,
+              isReadOnly: !!isReadOnly,
             })
           );
           continue;
-        } else {
-          console.warn("⚠️ Spaltenanzahl stimmt nicht mit Verhältnis überein");
         }
       }
     }
 
-
-    // Neue Tabellen-Syntax: [Tabelle Text | Name | Geburtstag]
+    // Tabelle: Header + Zeilen sammeln (Header ist die aktuelle Zeile)
     if (line.startsWith("[Tabelle ") && line.endsWith("]")) {
       flushMarkdown(idx);
-
-      const match = line.match(/\[Tabelle\s+(.*)\]/);
-      const headerRaw = match?.[1]?.trim() || "";
-      const headers = headerRaw.split("|").map((h) => h.trim());
       const rows = [];
-
-      let j = idx; // ← nicht idx + 1, sondern inkl. Headerzeile!
+      let j = idx;
       while (j < lines.length && (lines[j].startsWith("[Tabelle") || lines[j].trim().startsWith("-"))) {
         rows.push(lines[j]);
         j++;
       }
-
-      console.log("📋 Tabelle (alle Zeilen inkl. Header):", rows);
-
       elements.push(
         renderTable({
           key: `table-${idx}`,
-          rows, // enthält jetzt die Headerzeile selbst
+          rows,
           values,
           onChange: handleChange,
           sigRef,
-          isReadOnly: false,
+          isReadOnly: !!isReadOnly,
         })
       );
-
-
-
-
       idx = j - 1;
       continue;
     }
 
-    // Headings
-    if (line.startsWith("# ")) {
-      flushMarkdown(idx);
-      elements.push(
-        <Typography key={idx} variant="h5" sx={{ mt: 3 }}>
-          {line.slice(2)}
-        </Typography>
-      );
-      continue;
-    }
-    if (line.startsWith("## ")) {
-      flushMarkdown(idx);
-      elements.push(
-        <Typography key={idx} variant="h6" sx={{ mt: 2 }}>
-          {line.slice(3)}
-        </Typography>
-      );
-      continue;
-    }
-    if (line.startsWith("### ")) {
-      flushMarkdown(idx);
-      elements.push(
-        <Typography
-          key={idx}
-          variant="subtitle1"
-          sx={{ mt: 2, fontWeight: "bold", fontSize: "1.1rem" }}
-        >
-          {line.slice(4)}
-        </Typography>
-      );
-      continue;
-    }
-
-    // Select-Feld
+    // Select (Block-Variante)
     if (line.includes("[Select ")) {
       flushMarkdown(idx);
       const labelMatch = line.match(/^(.*?):\s*\[Select\s+([^\]]+)]/);
@@ -217,7 +150,7 @@ export function parseForm(text, values = {}, handleChange, sigRef, isReadOnly, f
       continue;
     }
 
-    // RadioGroup
+    // Radio (Block-Variante)
     if (line.includes("[Radio ")) {
       flushMarkdown(idx);
       const match = line.match(/^(.*?):\s*\[Radio\s+([^\]]+)]/);
@@ -238,7 +171,7 @@ export function parseForm(text, values = {}, handleChange, sigRef, isReadOnly, f
           label,
           options,
           value: values[name] || "",
-          onChange: handleChange,
+          onChange: (e) => handleChange({ target: { name, value: e } }),
         })
       );
       idx = i - 1;
@@ -299,7 +232,7 @@ export function parseForm(text, values = {}, handleChange, sigRef, isReadOnly, f
       continue;
     }
 
-    // Checkbox
+    // Checkbox (inline oder mit Label)
     if (line.includes("[Checkbox ")) {
       flushMarkdown(idx);
       const match = line.match(/\[Checkbox\s+([^\]]+)]/);
@@ -314,7 +247,7 @@ export function parseForm(text, values = {}, handleChange, sigRef, isReadOnly, f
             name,
             text: prefixText,
             checked: values[name] || false,
-            onChange: handleChange,
+            onChange: (e, val) => handleChange({ target: { name, value: !!val } }),
           })
         );
       } else {
@@ -324,7 +257,7 @@ export function parseForm(text, values = {}, handleChange, sigRef, isReadOnly, f
             name,
             label: suffixLabel || name,
             checked: values[name] || false,
-            onChange: handleChange,
+            onChange: (e, val) => handleChange({ target: { name, value: !!val } }),
           })
         );
       }
@@ -339,12 +272,17 @@ export function parseForm(text, values = {}, handleChange, sigRef, isReadOnly, f
       elements.push(
         renderSignature({
           key: `sig-${idx}`,
+          name,
+          value: values[name] || '',
+          onChange: (dataUrl) => handleChange({ target: { name, value: dataUrl } }),
           sigRef,
+          readOnly: !!isReadOnly,
         })
       );
       continue;
     }
 
+    // Fallback: sammle für Markdown-Absatz
     markdownBuffer.push(line);
   }
 
