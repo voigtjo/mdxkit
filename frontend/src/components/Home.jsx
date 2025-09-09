@@ -1,3 +1,4 @@
+// src/components/Home.jsx
 import React from 'react';
 import { Box, Paper, Stack, Button, Typography } from '@mui/material';
 import { Link, useParams } from 'react-router-dom';
@@ -26,7 +27,7 @@ export default function Home() {
 
       <Paper sx={{ p: 2, mb: 2 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>Aktionen</Typography>
-        <Stack direction="row" spacing={2} alignItems="center">
+        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
           <Button
             component={Link}
             to={`/tenant/${encodeURIComponent(tenantId)}/admin`}
@@ -52,6 +53,17 @@ export default function Home() {
           >
             Formular-Test öffnen
           </Button>
+
+          {isSysAdmin && (
+            <Button
+              component={Link}
+              to="/system"
+              variant="text"
+              color="secondary"
+            >
+              Systembereich
+            </Button>
+          )}
         </Stack>
       </Paper>
 

@@ -1,170 +1,232 @@
 // backend/routes/admin.js
-// Tenant-scope admin endpoints for managing forms and versions
-// Mounted at: /api/tenant/:tenantId/admin
 const express = require('express');
-const router = express.Router();
+const mongoose = require('mongoose');
+const router = express.Router({ mergeParams: true });
 
+const Tenant = require('../models/tenant');
 const Form = require('../models/form');
 const FormVersion = require('../models/formVersion');
-const FormFormat = require('../models/formFormat');
-const FormPrint = require('../models/formPrint');
+// ⛔️ KEINE formFormat / formPrint Requires mehr
 
-// All routes here assume req.tenant is set by tenantFromParam and user is authenticated.
+// Optional: feingranulare Rechte (wenn du willst, sonst nur authRequired im server.js)
+// const { requirePerm, PERMISSIONS: P } = require('../middleware/authz');
 
-function normName(name) {
-  return String(name || '').trim();
+const toOid = (v) => (mongoose.isValidObjectId(v) ? new mongoose.Types.ObjectId(v) : null);
+
+/** Tenant-Resolver – wie in form/manage genutzt */
+async function resolveTenantObjectId(req) {
+  if (req.tenant?._id) return req.tenant._id;
+  const idOrKey = req.params?.tenantId || req.tenantId || req.headers['x-tenant'];
+  if (!idOrKey) throw Object.assign(new Error('Missing tenant context'), { status: 400 });
+
+  const t = await Tenant.findOne({ $or: [{ key: idOrKey }, { tenantId: idOrKey }] })
+    .select({ _id: 1, status: 1 })
+    .lean();
+
+  if (!t) throw Object.assign(new Error('Unknown tenant'), { status: 404 });
+  if (t.status !== 'active') throw Object.assign(new Error('Tenant suspended'), { status: 423 });
+  return t._id;
 }
 
-// GET /admin/forms – list all forms for tenant
-router.get('/forms', async (req, res, next) => {
+/** GET /admin/forms – Liste mit Meta (gültig/aktuell) */
+router.get('/forms', async (req, res) => {
   try {
-    const list = await Form.find({ tenantId: req.tenant }, { __v: 0 }).sort({ updatedAt: -1 }).lean();
-    res.json(list);
-  } catch (err) { next(err); }
+    const tenant = await resolveTenantObjectId(req);
+
+    const list = await Form.find({ tenant })
+      .populate({ path: 'validVersionId', select: 'version isGlobal groupIds updatedAt' })
+      .populate({ path: 'currentVersionId', select: 'version updatedAt' })
+      .lean();
+
+    const mapped = (list || []).map(f => ({
+      _id: String(f._id),
+      name: f.name,
+      title: f.title || f.name,
+      // Nummern-Fallbacks, falls keine Referenzen gepflegt sind:
+      validVersion: f.validVersionId?.version ?? f.validVersion ?? null,
+      currentVersion: f.currentVersionId?.version ?? f.currentVersion ?? null,
+      // Sichtbarkeit (für AdminForms-Merge mit /form/available)
+      isGlobal: !!f.validVersionId?.isGlobal,
+      groupIds: (f.validVersionId?.groupIds || []).map(String),
+      // Zeit
+      updatedAt: f.updatedAt || f.validVersionId?.updatedAt || f.currentVersionId?.updatedAt || null,
+      // Alte Template-Felder existieren nicht mehr → null zur Kompatibilität
+      formFormatId: null,
+      formPrintId: null,
+      status: f.status || 'active',
+    }));
+
+    res.json(mapped);
+  } catch (err) {
+    console.error('admin/forms:', err);
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
-// POST /admin/upload-form  { name, text } – create/update draft
-router.post('/upload-form', async (req, res, next) => {
+/**
+ * POST /admin/upload-form
+ * Body: { name, text }
+ * - legt neue Version an (current), form + formVersion
+ * - gibt { success, version, mode: 'create'|'update' } zurück
+ */
+router.post('/upload-form', async (req, res) => {
   try {
+    const tenant = await resolveTenantObjectId(req);
     const { name, text } = req.body || {};
-    const n = normName(name);
-    if (!n || !text) return res.status(400).json({ error: 'name and text are required' });
+    if (!name || !text) return res.status(400).json({ error: 'name & text erforderlich' });
 
-    let form = await Form.findOne({ tenantId: req.tenant, name: n });
-    if (!form) {
-      form = await Form.create({
-        tenantId: req.tenant,
-        name: n,
-        currentVersion: 1,
-        validVersion: null,
-        status: 'draft',
-      });
-      await FormVersion.create({
-        formId: form._id,
-        tenantId: req.tenant,
-        version: 1,
-        text,
-        status: 'draft',
-      });
-      return res.json({ success: true, mode: 'create', version: 1 });
-    }
+    // Form holen/erzeugen
+    let form = await Form.findOne({ tenant, name }).lean();
+    const mode = form ? 'update' : 'create';
 
-    let version = form.currentVersion || 1;
-    const cur = await FormVersion.findOne({ formId: form._id, version });
-    if (cur && cur.status !== 'locked' && cur.status !== 'valid') {
-      cur.text = text;
-      cur.status = 'draft';
-      await cur.save();
-      form.status = 'draft';
-      await form.save();
-      return res.json({ success: true, mode: 'update', version });
-    }
+    // neue Versionsnummer
+    const newVersion =
+      (form?.currentVersionId ? form.currentVersionId.version : null) ??
+      (form?.currentVersion ?? 0) + 1;
 
-    version = version + 1;
-    await FormVersion.create({
-      formId: form._id,
-      tenantId: req.tenant,
-      version,
+    // Version anlegen
+    const vdoc = await FormVersion.create({
+      tenant,
+      name,
+      version: newVersion,
       text,
-      status: 'draft',
+      isGlobal: true,     // Default Sichtbarkeit der Version
+      groupIds: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
-    form.currentVersion = version;
-    form.status = 'draft';
-    await form.save();
-    res.json({ success: true, mode: 'update', version });
-  } catch (err) { next(err); }
+
+    // Form updaten/anlegen
+    if (form) {
+      await Form.updateOne(
+        { _id: form._id },
+        {
+          $set: {
+            currentVersion: newVersion,       // Fallback Feld (Zahl)
+            currentVersionId: vdoc._id,       // Referenz (empfohlen)
+            updatedAt: new Date(),
+          },
+        }
+      );
+    } else {
+      form = await Form.create({
+        tenant,
+        name,
+        title: name,
+        currentVersion: newVersion,
+        currentVersionId: vdoc._id,
+        validVersion: null,
+        validVersionId: null,
+        status: 'active',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+
+    res.json({ success: true, version: newVersion, mode });
+  } catch (err) {
+    console.error('admin/upload-form:', err);
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
-// POST /admin/forms/:name/release  { version } – mark version valid
-router.post('/forms/:name/release', async (req, res, next) => {
+/**
+ * POST /admin/forms/:name/release
+ * Body: { version }
+ * - setzt validVersion (+ validVersionId) auf die gewünschte Version
+ */
+router.post('/forms/:name/release', async (req, res) => {
   try {
-    const name = normName(req.params.name);
+    const tenant = await resolveTenantObjectId(req);
+    const { name } = req.params;
     const { version } = req.body || {};
-    if (!version || !Number.isInteger(version)) {
-      return res.status(400).json({ error: 'version must be integer' });
+    if (!Number.isInteger(version) || version <= 0) {
+      return res.status(400).json({ error: 'version (positive Integer) erforderlich' });
     }
 
-    const form = await Form.findOne({ tenantId: req.tenant, name });
-    if (!form) return res.status(404).json({ error: 'Form not found' });
+    const vdoc = await FormVersion.findOne({ tenant, name, version }).lean();
+    if (!vdoc) return res.status(404).json({ error: 'Version nicht gefunden' });
 
-    const ver = await FormVersion.findOne({ formId: form._id, version });
-    if (!ver) return res.status(404).json({ error: 'Version not found' });
-    if (ver.status === 'locked') return res.status(400).json({ error: 'Version is locked' });
+    const updated = await Form.findOneAndUpdate(
+      { tenant, name },
+      { $set: { validVersion: version, validVersionId: vdoc._id, updatedAt: new Date() } },
+      { new: true }
+    ).lean();
 
-    ver.status = 'valid';
-    await ver.save();
-    form.validVersion = version;
-    form.status = 'valid';
-    await form.save();
-
-    res.json({ success: true });
-  } catch (err) { next(err); }
+    if (!updated) return res.status(404).json({ error: 'Formular nicht gefunden' });
+    res.json({ success: true, name, validVersion: version });
+  } catch (err) {
+    console.error('admin/forms/:name/release:', err);
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
-// POST /admin/forms/:name/lock  { version } – lock a version
-router.post('/forms/:name/lock', async (req, res, next) => {
+/**
+ * POST /admin/forms/:name/lock
+ * Body: { version }
+ * - markiert eine Version als „locked“ (optional – zur Info)
+ */
+router.post('/forms/:name/lock', async (req, res) => {
   try {
-    const name = normName(req.params.name);
+    const tenant = await resolveTenantObjectId(req);
+    const { name } = req.params;
     const { version } = req.body || {};
-    if (!version || !Number.isInteger(version)) {
-      return res.status(400).json({ error: 'version must be integer' });
+    if (!Number.isInteger(version) || version <= 0) {
+      return res.status(400).json({ error: 'version (positive Integer) erforderlich' });
     }
 
-    const form = await Form.findOne({ tenantId: req.tenant, name });
-    if (!form) return res.status(404).json({ error: 'Form not found' });
+    const vdoc = await FormVersion.findOneAndUpdate(
+      { tenant, name, version },
+      { $set: { locked: true, updatedAt: new Date() } },
+      { new: true }
+    ).lean();
 
-    const ver = await FormVersion.findOne({ formId: form._id, version });
-    if (!ver) return res.status(404).json({ error: 'Version not found' });
-
-    ver.status = 'locked';
-    await ver.save();
-    if (form.currentVersion === version && form.status !== 'valid') {
-      form.status = 'locked';
-      await form.save();
-    }
-    res.json({ success: true });
-  } catch (err) { next(err); }
+    if (!vdoc) return res.status(404).json({ error: 'Version nicht gefunden' });
+    res.json({ success: true, name, version, locked: true });
+  } catch (err) {
+    console.error('admin/forms/:name/lock:', err);
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
-// GET /admin/forms/:name/version/:version – fetch text of specific version
-router.get('/forms/:name/version/:version', async (req, res, next) => {
+/**
+ * GET /admin/forms/:name/version/:version
+ * - liefert den reinen Formulartest (Text) + Basis-Meta
+ */
+router.get('/forms/:name/version/:version', async (req, res) => {
   try {
-    const name = normName(req.params.name);
-    const version = parseInt(req.params.version, 10);
-    if (!version) return res.status(400).json({ error: 'Invalid version' });
+    const tenant = await resolveTenantObjectId(req);
+    const { name, version } = req.params;
+    const ver = parseInt(version, 10);
+    if (!Number.isInteger(ver) || ver <= 0) {
+      return res.status(400).json({ error: 'Ungültige version' });
+    }
 
-    const form = await Form.findOne({ tenantId: req.tenant, name });
-    if (!form) return res.status(404).json({ error: 'Form not found' });
+    const vdoc = await FormVersion.findOne({ tenant, name, version: ver }).lean();
+    if (!vdoc) return res.status(404).json({ error: 'Version nicht gefunden' });
 
-    const ver = await FormVersion.findOne({ formId: form._id, version });
-    if (!ver) return res.status(404).json({ error: 'Version not found' });
-
-    res.json({ text: ver.text, version: ver.version, status: ver.status, formId: form._id });
-  } catch (err) { next(err); }
+    res.json({
+      _id: String(vdoc._id),
+      name,
+      version: vdoc.version,
+      text: vdoc.text,
+      updatedAt: vdoc.updatedAt,
+      isGlobal: !!vdoc.isGlobal,
+      groupIds: (vdoc.groupIds || []).map(String),
+    });
+  } catch (err) {
+    console.error('admin/forms/:name/version/:version:', err);
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
-// PUT /admin/forms/:name/assign-templates  { formFormatId?, formPrintId? }
-router.put('/forms/:name/assign-templates', async (req, res, next) => {
-  try {
-    const name = normName(req.params.name);
-    const { formFormatId = null, formPrintId = null } = req.body || {};
-    const form = await Form.findOne({ tenantId: req.tenant, name });
-    if (!form) return res.status(404).json({ error: 'Form not found' });
-
-    if (formFormatId) {
-      const ok = await FormFormat.findOne({ _id: formFormatId, tenantId: req.tenant });
-      if (!ok) return res.status(400).json({ error: 'Invalid format template id' });
-    }
-    if (formPrintId) {
-      const ok = await FormPrint.findOne({ _id: formPrintId, tenantId: req.tenant });
-      if (!ok) return res.status(400).json({ error: 'Invalid print template id' });
-    }
-
-    form.formFormatId = formFormatId || null;
-    form.formPrintId  = formPrintId  || null;
-    await form.save();
-    res.json({ success: true });
-  } catch (err) { next(err); }
+/**
+ * PUT /admin/forms/:name/assign-templates
+ * Body: { formFormatId, formPrintId }
+ * - Feature entfernt → No-Op für Kompatibilität
+ */
+router.put('/forms/:name/assign-templates', async (_req, res) => {
+  res.json({ success: true, note: 'Templates-Funktion entfernt (No-Op)' });
 });
 
 module.exports = router;

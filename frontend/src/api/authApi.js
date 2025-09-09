@@ -4,7 +4,7 @@ const base = '/api/auth';
 async function j(req) {
   const res = await req;
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw data?.error ? new Error(data.error) : new Error('Request failed');
+  if (!res.ok) throw (data?.error ? new Error(data.error) : new Error('Request failed'));
   return data;
 }
 
@@ -38,4 +38,25 @@ export function logout(accessToken) {
 
 export function me(accessToken) {
   return j(fetch(`${base}/me`, { headers: { Authorization: `Bearer ${accessToken}` } }));
+}
+
+/* ---------- NEU: Passwort ändern ---------- */
+
+// Kanonisch: Access-Token mitgeben
+export function changePassword(accessToken, currentPassword, newPassword) {
+  return j(fetch(`${base}/change-password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  }));
+}
+
+// Bequemer Wrapper: liest Access-Token aus localStorage
+export function changeMyPassword(currentPassword, newPassword) {
+  let token = '';
+  try { token = localStorage.getItem('accessToken') || ''; } catch {}
+  return changePassword(token, currentPassword, newPassword);
 }

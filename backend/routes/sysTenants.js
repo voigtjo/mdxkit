@@ -1,95 +1,142 @@
 // backend/routes/sysTenants.js
-// System-scope Tenant administration (requires System Admin).
-// Base mount: /api/sys/tenants
 const express = require('express');
 const router = express.Router();
-const mongoose = require('mongoose');
-
-const { authRequired } = require('../middleware/auth');
-const { requireSystemAdmin } = require('../middleware/authz');
 
 const Tenant = require('../models/tenant');
+const { authRequired } = require('../middleware/auth');
+const { requireRoles } = require('../middleware/authz');
 
-// Ensure auth + system admin for all routes in this file
-router.use(authRequired, requireSystemAdmin);
+// Nur System-Admins dürfen hier rein
+router.use(authRequired, requireRoles('SystemAdmin'));
 
-// GET /api/sys/tenants
+// Helpers
+function isTenantIdValid(s) {
+  return typeof s === 'string' && /^[a-zA-Z0-9_-]{2,64}$/.test(s);
+}
+
+/**
+ * GET /api/sys/tenants
+ * Liefert alle Tenants (Frontend filtert selbst aktive/gesperrte).
+ */
 router.get('/', async (_req, res, next) => {
   try {
-    const list = await Tenant.find({}, { __v: 0 }).sort({ createdAt: 1 }).lean();
-    res.json(list);
-  } catch (err) { next(err); }
+    const list = await Tenant.find({}, { tenantId: 1, key: 1, name: 1, status: 1, updatedAt: 1 })
+      .sort({ tenantId: 1 })
+      .lean();
+
+    // Fallback: key -> tenantId synchronisieren, falls im Modell nicht genutzt
+    const normalized = (list || []).map(t => ({
+      tenantId: t.tenantId || t.key,   // Frontend erwartet tenantId
+      name: t.name || t.tenantId || t.key,
+      status: t.status || 'active',
+      updatedAt: t.updatedAt,
+    }));
+
+    res.json(normalized);
+  } catch (e) { next(e); }
 });
 
-// POST /api/sys/tenants
-// body: { tenantId, name, settings? }
+/**
+ * POST /api/sys/tenants
+ * Body: { tenantId, name, settings? }
+ */
 router.post('/', async (req, res, next) => {
   try {
     const { tenantId, name, settings } = req.body || {};
-    if (!tenantId || !/^[a-zA-Z0-9_-]{2,64}$/.test(tenantId)) {
-      return res.status(400).json({ error: 'Invalid tenantId (allowed: a–Z, 0–9, _ , -, len 2–64).' });
+    if (!isTenantIdValid(tenantId)) {
+      return res.status(400).json({ error: 'Ungültige tenantId (a–Z, 0–9, _ , -, 2–64)' });
     }
-    if (!name || !String(name).trim()) {
-      return res.status(400).json({ error: 'Name is required.' });
+    if (!name || String(name).trim().length < 1) {
+      return res.status(400).json({ error: 'Name ist erforderlich' });
     }
-    const exists = await Tenant.findOne({ tenantId });
-    if (exists) return res.status(409).json({ error: 'Tenant already exists.' });
+
+    const exists = await Tenant.findOne({ $or: [{ tenantId }, { key: tenantId }] }).lean();
+    if (exists) return res.status(409).json({ error: 'Tenant existiert bereits' });
 
     const doc = await Tenant.create({
       tenantId,
+      key: tenantId,              // optionaler Alias für ältere Stellen
       name: String(name).trim(),
       status: 'active',
-      settings: settings || {},
+      settings: typeof settings === 'object' && settings ? settings : {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
-    res.status(201).json(doc);
-  } catch (err) { next(err); }
+
+    res.status(201).json({
+      tenantId: doc.tenantId || doc.key,
+      name: doc.name,
+      status: doc.status,
+    });
+  } catch (e) { next(e); }
 });
 
-// PATCH /api/sys/tenants/:tenantId
-// body: { name?, settings? }
+/**
+ * PATCH /api/sys/tenants/:tenantId
+ * Body: { name?, settings? }
+ */
 router.patch('/:tenantId', async (req, res, next) => {
   try {
     const { tenantId } = req.params;
     const { name, settings } = req.body || {};
-    const doc = await Tenant.findOne({ tenantId });
-    if (!doc) return res.status(404).json({ error: 'Tenant not found' });
 
-    if (typeof name === 'string' && name.trim()) doc.name = name.trim();
-    if (settings && typeof settings === 'object') doc.settings = settings;
+    const updates = {};
+    if (typeof name !== 'undefined') {
+      if (!name || String(name).trim().length < 1) {
+        return res.status(400).json({ error: 'Ungültiger Name' });
+      }
+      updates.name = String(name).trim();
+    }
+    if (typeof settings !== 'undefined') {
+      if (settings && typeof settings !== 'object') {
+        return res.status(400).json({ error: 'settings muss ein Objekt sein' });
+      }
+      updates.settings = settings || {};
+    }
+    updates.updatedAt = new Date();
 
-    await doc.save();
-    res.json(doc);
-  } catch (err) { next(err); }
+    const doc = await Tenant.findOneAndUpdate(
+      { $or: [{ tenantId }, { key: tenantId }] },
+      { $set: updates },
+      { new: true }
+    ).lean();
+
+    if (!doc) return res.status(404).json({ error: 'Tenant nicht gefunden' });
+
+    res.json({
+      tenantId: doc.tenantId || doc.key,
+      name: doc.name,
+      status: doc.status,
+    });
+  } catch (e) { next(e); }
 });
 
-// PATCH /api/sys/tenants/:tenantId/status
-// body: { status: 'active' | 'suspended' }
+/**
+ * PATCH /api/sys/tenants/:tenantId/status
+ * Body: { status: 'active' | 'suspended' }
+ */
 router.patch('/:tenantId/status', async (req, res, next) => {
   try {
     const { tenantId } = req.params;
     const { status } = req.body || {};
     if (!['active', 'suspended'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status' });
+      return res.status(400).json({ error: 'Ungültiger Status' });
     }
-    const doc = await Tenant.findOneAndUpdate(
-      { tenantId },
-      { $set: { status } },
-      { new: true }
-    );
-    if (!doc) return res.status(404).json({ error: 'Tenant not found' });
-    res.json(doc);
-  } catch (err) { next(err); }
-});
 
-// DELETE /api/sys/tenants/:tenantId
-// Hard delete (rare). Prefer status=suspended for "soft delete".
-router.delete('/:tenantId', async (req, res, next) => {
-  try {
-    const { tenantId } = req.params;
-    const deleted = await Tenant.findOneAndDelete({ tenantId });
-    if (!deleted) return res.status(404).json({ error: 'Tenant not found' });
-    res.json({ success: true });
-  } catch (err) { next(err); }
+    const doc = await Tenant.findOneAndUpdate(
+      { $or: [{ tenantId }, { key: tenantId }] },
+      { $set: { status, updatedAt: new Date() } },
+      { new: true }
+    ).lean();
+
+    if (!doc) return res.status(404).json({ error: 'Tenant nicht gefunden' });
+
+    res.json({
+      tenantId: doc.tenantId || doc.key,
+      name: doc.name,
+      status: doc.status,
+    });
+  } catch (e) { next(e); }
 });
 
 module.exports = router;

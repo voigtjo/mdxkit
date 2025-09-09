@@ -2,16 +2,20 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControlLabel, Switch, TextField, Typography, IconButton, Tooltip,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Stack
 } from '@mui/material';
 import { Add as AddIcon, Edit as EditIcon, DeleteOutline, CheckCircle, Block } from '@mui/icons-material';
 import { listAllTenants, createTenant, setTenantStatus, updateTenant } from '../../api/tenantApi';
+import { useNavigate } from 'react-router-dom';
 
 export default function TenantAdmin() {
+  const nav = useNavigate();
+
   const [items, setItems] = useState([]);
   const [showSuspended, setShowSuspended] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Dialog State
   const [open, setOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [form, setForm] = useState({ tenantId: '', name: '' });
@@ -68,7 +72,7 @@ export default function TenantAdmin() {
 
   const softDelete = async (tenantId) => {
     if (!window.confirm(`Tenant "${tenantId}" wirklich (soft) löschen? Er wird suspendiert.`)) return;
-    await setTenantStatus(tenantId, 'suspended');
+    await setTenantStatus(tenantId, 'suspended'); // Soft-Delete = suspend
     load();
   };
 
@@ -84,8 +88,12 @@ export default function TenantAdmin() {
 
   return (
     <Box sx={{ p: 2 }}>
-      <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
         <Typography variant="h6" sx={{ fontWeight: 600 }}>Tenant-Administration</Typography>
+        <Button variant="outlined" onClick={() => nav('/system')}>← Zurück</Button>
+      </Stack>
+
+      <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
         <FormControlLabel
           control={<Switch checked={showSuspended} onChange={(e) => setShowSuspended(e.target.checked)} />}
           label="auch gesperrte anzeigen"
@@ -143,6 +151,7 @@ export default function TenantAdmin() {
         </Table>
       </TableContainer>
 
+      {/* Dialog: Neu / Bearbeiten */}
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>{editMode ? 'Tenant bearbeiten' : 'Neuen Tenant anlegen'}</DialogTitle>
         <DialogContent sx={{ display: 'grid', gap: 2, pt: 2 }}>

@@ -1,92 +1,86 @@
 import React, { useState } from 'react';
-import { Box, Button, Card, CardContent, Tab, Tabs, TextField, Typography, Alert } from '@mui/material';
-import { useAuth } from '../context/AuthContext';
+import {
+  Box, Paper, Stack, TextField, Button, Typography, Alert, CircularProgress
+} from '@mui/material';
+import { login } from '@/api/authApi';
+
+function setTokens({ accessToken, refreshToken }) {
+  try {
+    if (accessToken) localStorage.setItem('accessToken', accessToken);
+    if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
+  } catch {}
+}
 
 export default function LoginRegister() {
-  const { doLogin, doRegister } = useAuth();
-  const [tab, setTab] = useState(0);
-
-  const [tenantId, setTenantId] = useState('dev');
-  const [displayName, setDisplayName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
+  const [msg, setMsg]           = useState('');
+  const [err, setErr]           = useState('');
+  const [busy, setBusy]         = useState(false);
 
-  const [info, setInfo] = useState('');
-  const [error, setError] = useState('');
+  const onLogin = async (e) => {
+    e.preventDefault();
+    setErr(''); setMsg('');
+    if (!email || !password) { setErr('Bitte Email und Passwort eingeben.'); return; }
 
-  const resetMsg = () => { setInfo(''); setError(''); };
-
-  async function onRegister(e) {
-    e.preventDefault(); resetMsg();
     try {
-      const res = await doRegister({ tenantId, displayName, email, password });
-      if (res?.error) throw res;
-      setInfo('Registrierung erfolgreich. Du kannst dich jetzt einloggen.');
-      setTab(0);
-    } catch (e) {
-      setError(e?.error || 'Registrierung fehlgeschlagen');
+      setBusy(true);
+      const data = await login({ email, password }); // erwartet {accessToken, refreshToken}
+      setTokens(data);
+      // harmlos und robust: Seite neu laden → AuthProvider liest Tokens und lädt user/me
+      window.location.href = '/';
+    } catch (e2) {
+      setErr(e2?.message || 'Login fehlgeschlagen');
+    } finally {
+      setBusy(false);
     }
-  }
-
-  async function onLogin(e) {
-    e.preventDefault(); resetMsg();
-    try {
-      const res = await doLogin({ email, password }); // bewusst ohne tenantId
-      if (res?.error) throw res;
-      setInfo('Login erfolgreich.');
-    } catch (e) {
-      setError(e?.error || 'Login fehlgeschlagen');
-    }
-  }
+  };
 
   return (
-    <Box sx={{ maxWidth: 460, mx: 'auto', mt: 6 }}>
-      <Card>
-        <Tabs value={tab} onChange={(_e, v) => { setTab(v); resetMsg(); }} centered>
-          <Tab label="Login" />
-          <Tab label="Registrieren" />
-        </Tabs>
-        <CardContent>
-          {info && <Alert severity="success" sx={{ mb: 2 }}>{info}</Alert>}
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+    <Box sx={{ p: 3, display: 'flex', justifyContent: 'center' }}>
+      <Paper sx={{ p: 3, width: '100%', maxWidth: 420 }} elevation={3}>
+        <Typography variant="h5" sx={{ mb: 2 }}>Anmeldung</Typography>
 
-          <Box
-            component="form"
-            onSubmit={tab === 0 ? onLogin : onRegister}
-            sx={{ display: 'grid', gap: 2 }}
-          >
-            {tab === 1 && (
-              <TextField
-                label="Tenant ID"
-                value={tenantId}
-                onChange={e => setTenantId(e.target.value)}
-                required
-              />
-            )}
+        {msg && <Alert severity="success" sx={{ mb: 2 }}>{msg}</Alert>}
+        {err && <Alert severity="error"   sx={{ mb: 2 }}>{err}</Alert>}
 
-            {tab === 1 && (
-              <TextField
-                label="Anzeigename"
-                value={displayName}
-                onChange={e => setDisplayName(e.target.value)}
-                required
-              />
-            )}
-
-            <TextField label="E-Mail" type="email" value={email} onChange={e => setEmail(e.target.value)} required />
-            <TextField label="Passwort" type="password" value={password} onChange={e => setPassword(e.target.value)} required />
-
-            <Button variant="contained" type="submit">
-              {tab === 0 ? 'Einloggen' : 'Registrieren / Claim'}
+        <Box component="form" onSubmit={onLogin}>
+          <Stack spacing={2}>
+            <TextField
+              label="E-Mail"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              required
+              fullWidth
+            />
+            <TextField
+              label="Passwort"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+              fullWidth
+            />
+            <Button
+              variant="contained"
+              type="submit"
+              disabled={busy}
+            >
+              {busy ? <CircularProgress size={20} /> : 'Einloggen'}
             </Button>
-          </Box>
+          </Stack>
+        </Box>
 
-          <Typography variant="body2" sx={{ mt: 2, color: 'text.secondary' }}>
-            Hinweis: Wenn dein Account schon existiert, aber ohne Passwort angelegt wurde,
-            setzt die Registrierung hier dein Passwort („Claim“). Andernfalls wird ein neuer Account angelegt.
-          </Typography>
-        </CardContent>
-      </Card>
+        {/* optional: Link zum „Passwort ändern“, falls bereits eingeloggt / erzwungen wird separat */}
+        {/* <Box sx={{ mt: 2 }}>
+          <Button size="small" onClick={() => (window.location.href = '/account/change-password')}>
+            Passwort ändern
+          </Button>
+        </Box> */}
+      </Paper>
     </Box>
   );
 }

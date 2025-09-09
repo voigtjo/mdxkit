@@ -1,3 +1,4 @@
+// src/components/AdminIndex.jsx
 import React, { useMemo, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Box, Paper, Tabs, Tab, Stack, Typography } from '@mui/material';

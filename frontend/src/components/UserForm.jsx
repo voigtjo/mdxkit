@@ -14,15 +14,15 @@ import {
 } from "@mui/material";
 
 import {
-  getFormForPatient,
-  getFormForTest,
+  getFormForPatient,   // PROD: lädt Formular für userId
+  getFormForTest,      // TEST: lädt Formular mit Testdatensatz
   submitForm,
   submitFormTest,
-  getPatient,
   saveFormData,
   saveFormDataTest,
 } from "@/api/formApi";
 
+import { getUserById } from "@/api/userApi";
 import { parseForm } from "@/utils/parseForm.jsx";
 import { useRoles } from '@/hooks/useRoles';
 
@@ -30,14 +30,14 @@ const UserForm = () => {
   const { isSysAdmin, isTenantAdmin, hasAnyRole } = useRoles();
   const canEditByRole = isSysAdmin || isTenantAdmin || hasAnyRole(['FormDataEditor','FormPublisher']);
 
-  const { formName, patientId } = useParams();
-  const MODE = patientId ? "PROD" : "TEST";
+  const { formName, userId } = useParams(); // ⬅️ userId statt patientId
+  const MODE = userId ? "PROD" : "TEST";
 
   const [formText, setFormText] = useState("");
   const [values, setValues] = useState({});
   const [entryId, setEntryId] = useState(null);
   const [message, setMessage] = useState("");
-  const [patientName, setPatientName] = useState("");
+  const [userName, setUserName] = useState("");
   const [status, setStatus] = useState("neu");
   const [updatedAt, setUpdatedAt] = useState(null);
 
@@ -51,7 +51,7 @@ const UserForm = () => {
         const res =
           MODE === "TEST"
             ? await getFormForTest(formName)
-            : await getFormForPatient(formName, patientId);
+            : await getFormForPatient(formName, userId);
 
         setFormText(res.text);
         setEntryId(res.data._id);
@@ -65,10 +65,10 @@ const UserForm = () => {
         }
 
         if (MODE === "PROD") {
-          const patient = await getPatient(patientId);
-          setPatientName(patient.name || patient.displayName || '');
+          const u = await getUserById(userId);
+          setUserName(u.displayName || u.name || u.email || userId);
         } else {
-          setPatientName("Max Mustermann");
+          setUserName("Max Mustermann");
         }
       } catch (err) {
         console.error("❌ Fehler beim Laden des Formulars:", err);
@@ -76,13 +76,13 @@ const UserForm = () => {
       }
     };
     load();
-  }, [formName, patientId, MODE]);
+  }, [formName, userId, MODE]);
 
   const handleChange = (name, value) => {
     setValues((prev) => ({ ...prev, [name]: value }));
   };
 
-  // In PROD: editierbar nur bei 'offen' oder 'gespeichert'. In TEST: immer.
+  // In PROD editierbar nur bei 'offen' oder 'gespeichert'. In TEST immer editierbar.
   const isEditableByStatus = MODE === "TEST" ? true : (status === "offen" || status === "gespeichert");
   const isEditable = canEditByRole && isEditableByStatus;
 
@@ -150,7 +150,7 @@ const UserForm = () => {
     const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
 
     pdf.addImage(imgData, "PNG", margin, margin, imgWidth, imgHeight);
-    pdf.save(`${formName}-${patientName}.pdf`);
+    pdf.save(`${formName}-${userName}.pdf`);
   };
 
   const handlePrint = async () => {
@@ -179,6 +179,7 @@ const UserForm = () => {
     }
   };
 
+  // PDF/Druck: erlauben bei Test-Mode ODER wenn freigegeben ODER wenn Bearbeitungsrecht
   const canOutput = MODE === 'TEST' || status === 'freigegeben' || canEditByRole;
 
   return (
@@ -199,7 +200,7 @@ const UserForm = () => {
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
             <Typography variant="subtitle1">
-              👤 Patient: <strong>{patientName}</strong>
+              👤 Nutzer: <strong>{userName}</strong>
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Status: {status} {updatedAt && `(${updatedAt.toLocaleString()})`}
@@ -226,7 +227,7 @@ const UserForm = () => {
         <Divider sx={{ mb: 3 }} />
 
         <Box ref={printRef}>
-          {parseForm(formText, values, handleChange, sigRef, !isEditable /* formatOptions entfallen */)}
+          {parseForm(formText, values, handleChange, sigRef, !isEditable /* kein formatOptions mehr */)}
         </Box>
       </Paper>
     </Box>

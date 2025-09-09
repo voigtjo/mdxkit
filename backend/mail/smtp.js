@@ -57,36 +57,45 @@ async function verify() {
 async function sendMail({ to, subject, text = '', html = '', cc, bcc, replyTo }) {
   if (!EMAIL_FROM) throw new Error('EMAIL_FROM not set');
 
-  // schlanker Send-Log
-  console.log('[SMTP:send] →', {
-    toCount: Array.isArray(to) ? to.length : 1,
-    subject,
-  });
+  // Envelope-From bevorzugt explizit über ENV, sonst SMTP_USER, sonst aus EMAIL_FROM extrahieren
+  const fromHeader = EMAIL_FROM;
+  const envelopeFrom =
+    process.env.SMTP_ENVELOPE_FROM ||
+    SMTP_USER ||
+    (EMAIL_FROM.match(/<([^>]+)>/)?.[1]);
+
+  // optionales Always-BCC (z. B. zu dir selbst)
+  const alwaysBcc = process.env.MAIL_BCC_ALWAYS;
+
+  console.log('[SMTP:send] →', { toCount: Array.isArray(to) ? to.length : 1, subject });
 
   try {
     const info = await transporter.sendMail({
-      from: EMAIL_FROM,
+      from: fromHeader,
       to,
+      cc,
+      bcc: bcc || alwaysBcc || undefined,
+      replyTo,
       subject,
       text,
       html,
-      cc,
-      bcc,
-      replyTo,
+      // sorgt für Return-Path/MAIL FROM Konsistenz
+      envelope: envelopeFrom ? { from: envelopeFrom, to } : undefined,
+      headers: { 'X-MDXKit': 'invite-v1' },
     });
 
     console.log('[SMTP:send] ←', {
       messageId: info.messageId,
       accepted: info.accepted,
-      response: info.response, // z.B. '250 OK id=...'
+      response: info.response,
     });
 
     return { ok: true, messageId: info.messageId, accepted: info.accepted, response: info.response };
   } catch (e) {
-    // Klartext-Fehler – z. B. ECONNREFUSED/ETIMEDOUT/EAUTH/ENOTFOUND
     console.error('[SMTP:error]', e.code || e.name || '', e.message);
     throw e;
   }
 }
+
 
 module.exports = { sendMail, verify };

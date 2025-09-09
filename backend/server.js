@@ -22,6 +22,8 @@ const formRoutes    = require('./routes/form');                  // /api/tenant/
 const usersRoutes   = require('./routes/users');                 // /api/tenant/:tenantId/users
 const groupRoutes   = require('./routes/groups');                // /api/tenant/:tenantId/groups
 
+// backend/server.js
+const sysAdminsRouter = require('./routes/sysAdmins');
 const sysTestMail = require('./routes/sysTestMail');
 
 const app   = express();
@@ -60,16 +62,12 @@ app.use(cors({
 // app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 
-// ─── SMTP einmal beim Start prüfen (falls aktiv) ───────────────────────────────
+// ─── Mail-Orchestrator (./mail) einmal initialisieren (nicht blockierend) ────
 try {
-  // nutzt automatisch SMTP oder SendGrid – je nach MAIL_PROVIDER in .env
-  const mailTransport = require('./mail/transport');
-  if (typeof mailTransport.verify === 'function') {
-    // nicht blockierend starten; die Funktion loggt selbst [SMTP:init]/[SMTP:verify]
-    mailTransport.verify();
-  }
+  const mail = require('./mail');
+  mail.init().catch(() => {});
 } catch (e) {
-  console.warn('[Mail:init] verify skipped:', e.message);
+  console.warn('[mail] init skipped:', e.message);
 }
 
 
@@ -95,6 +93,8 @@ app.get('/api/health', (_req, res) => {
 
 // System-Testroute (z. B. Mail)
 app.use('/api/sys', /* authRequired, */ sysTestMail);
+
+app.use('/api/sys/admins', sysAdminsRouter);
 
 /* ---------------------- PUBLIC (no tenant) ---------------------- */
 app.use('/api/tenants', tenantsPublicRoutes);

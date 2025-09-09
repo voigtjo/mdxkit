@@ -89,7 +89,7 @@ const ManageForms = () => {
 
   const handleAssign = async () => {
     if (!selectedForm || !selectedUser) return;
-    await assignForm(selectedForm, selectedUser);
+    await assignForm(selectedForm, selectedUser); // Backend erwartet userId
     setMessage('✅ Formular zugewiesen');
     await refreshAllData();
   };
@@ -120,26 +120,23 @@ const ManageForms = () => {
     }
   };
 
-  const getUserLabel = (u) => u.displayName || u.name || u.email || u._id;
-  const getUserNameById = (id) => {
-    const u = users.find((x) => x._id === id);
-    return u ? getUserLabel(u) : id;
+  const getUserName = (id) => {
+    const u = users.find((u) => u._id === id);
+    return u?.displayName || u?.name || u?.email || id;
   };
 
   if (authLoading || !tenantId) {
     return <Box sx={{ p: 4 }}><Alert severity="info">Lade…</Alert></Box>;
   }
 
-  if (!canEdit) {
-    return (
-      <Box sx={{ p: 4 }}>
-        <Alert severity="warning">Keine Berechtigung für diesen Bereich.</Alert>
-      </Box>
-    );
-  }
-
-  return (
-    <Box sx={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', pt: 6, px: 4 }}>
+  return !canEdit ? (
+    <Box sx={{ p: 4 }}>
+      <Alert severity="warning">Keine Berechtigung für diesen Bereich.</Alert>
+    </Box>
+  ) : (
+    <Box
+      sx={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', pt: 6, px: 4 }}
+    >
       <Box sx={{ width: '100%', maxWidth: 1200 }}>
         <Button
           component={Link}
@@ -178,7 +175,7 @@ const ManageForms = () => {
                 onChange={(e) => setSelectedUser(e.target.value)}
               >
                 {users.map((u) => (
-                  <MenuItem key={u._id} value={u._id}>{getUserLabel(u)}</MenuItem>
+                  <MenuItem key={u._id} value={u._id}>{u.displayName || u.name || u.email}</MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -190,7 +187,7 @@ const ManageForms = () => {
                   color="success"
                   onClick={handleAssign}
                   startIcon={<SendIcon />}
-                  disabled={!selectedForm || !selectedUser}
+                  disabled={!canEdit || !selectedForm || !selectedUser}
                 >
                   Zuweisen
                 </Button>
@@ -224,7 +221,7 @@ const ManageForms = () => {
                     (v{e.version})
                   </Typography>
                 </TableCell>
-                <TableCell>{getUserNameById(e.patientId)}</TableCell>
+                <TableCell>{getUserName(e.userId)}</TableCell>
                 <TableCell>{e.status}</TableCell>
                 <TableCell>{new Date(e.updatedAt).toLocaleString()}</TableCell>
                 <TableCell>
@@ -232,7 +229,7 @@ const ManageForms = () => {
                     <Tooltip title="Formular öffnen">
                       <Button
                         component={Link}
-                        to={`/tenant/${tenantId}/formular/${e.formName}/${e.patientId}`}
+                        to={`/tenant/${tenantId}/formular/${e.formName}/${e.userId}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         variant="outlined"
@@ -246,7 +243,7 @@ const ManageForms = () => {
                     {e.status === 'offen' && (
                       <Tooltip title="Löschen">
                         <span>
-                          <IconButton onClick={() => handleDelete(e._id)} color="error" size="small">
+                          <IconButton onClick={() => handleDelete(e._id)} color="error" size="small" disabled={!canEdit}>
                             <DeleteIcon />
                           </IconButton>
                         </span>
@@ -257,14 +254,14 @@ const ManageForms = () => {
                       <>
                         <Tooltip title="Erneut zuweisen">
                           <span>
-                            <Button onClick={() => handleReopen(e._id)} color="warning" variant="outlined" size="small">
+                            <Button onClick={() => handleReopen(e._id)} color="warning" variant="outlined" size="small" disabled={!canEdit}>
                               Erneut zuweisen
                             </Button>
                           </span>
                         </Tooltip>
                         <Tooltip title="Akzeptieren (abschließen)">
                           <span>
-                            <Button onClick={() => handleAccept(e._id)} color="primary" variant="contained" size="small" startIcon={<CheckCircleIcon />}>
+                            <Button onClick={() => handleAccept(e._id)} color="primary" variant="contained" size="small" startIcon={<CheckCircleIcon />} disabled={!canEdit}>
                               Akzeptieren
                             </Button>
                           </span>

@@ -1,12 +1,11 @@
 // src/App.jsx
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 
 import RoleVisible from './routes/RoleVisible';
 import DebugGate from './debug/DebugGate';
 
 import Home from './components/Home';
-import AdminForms from './components/AdminForms';
 import ManageForms from './components/ManageForms';
 import UserForm from './components/UserForm';
 
@@ -16,7 +15,7 @@ import TenantGate from './components/TenantGate';
 import TenantBar from './components/TenantBar';
 
 import AdminIndex from './components/AdminIndex';
-// import AdminUsers from './components/AdminUsers'; // nicht direkt geroutet, wird in AdminIndex geladen
+import AdminUsers from './components/AdminUsers';
 
 import SystemHome from './components/system/SystemHome';
 import TenantAdmin from './components/system/TenantAdmin';
@@ -25,26 +24,21 @@ import AuthProvider, { useAuth } from './context/AuthContext';
 import AuthGate from './components/AuthGate';
 import HeaderUser from './components/HeaderUser';
 
-/* ---------- Legacy-Redirect (präfixt den aktuellen Pfad mit /tenant/:tid) ---------- */
-function LegacyToTenantPrefix() {
+// NEU:
+import AccountChangePassword from './components/AccountChangePassword';
+// NEU: SysAdmin-Verwaltung
+import SysAdminAdmin from './components/system/SysAdminAdmin';
+
+function TenantRedirect({ to }) {
   const { tenantId } = useTenant();
-  const location = useLocation();
   if (!tenantId) return <Navigate to="/" replace />;
-  // z.B. "/formular/foo/123" -> "/tenant/<tid>/formular/foo/123"
-  return <Navigate to={`/tenant/${encodeURIComponent(tenantId)}${location.pathname}`} replace />;
+  return <Navigate to={`/tenant/${encodeURIComponent(tenantId)}/${to}`} replace />;
 }
 
-/**
- * Header-Wrapper:
- * - Links: TenantBar nur für SysAdmins
- * - Rechts: HeaderUser für alle eingeloggten User
- */
 function LayoutWithConditionalHeader({ children }) {
   const { user } = useAuth();
   const isSysAdmin = !!user?.isSystemAdmin;
-
   if (!user) return children;
-
   return (
     <>
       <div
@@ -74,23 +68,18 @@ const App = () => {
             <AuthGate>
               <TenantGate>
                 <Routes>
-                  {/* Systembereich (nur SysAdmins) */}
-                  <Route
-                    path="/system"
-                    element={
-                      <RoleVisible allow={[]}>
-                        <SystemHome />
-                      </RoleVisible>
-                    }
-                  />
-                  <Route
-                    path="/system/tenants"
-                    element={
-                      <RoleVisible allow={[]}>
-                        <TenantAdmin />
-                      </RoleVisible>
-                    }
-                  />
+                  {/* Systembereich */}
+                  <Route path="/system" element={<SystemHome />} />
+                  <Route path="/system/tenants" element={<TenantAdmin />} />
+                  {/* ➕ SysAdmin-Verwaltung */}
+                  <Route path="/system/admins" element={<SysAdminAdmin />} />
+
+                  {/* Passwort ändern – ohne & mit Tenant-Prefix */}
+                  <Route path="/account/change-password" element={<AccountChangePassword />} />
+                  <Route path="/tenant/:tenantId/account/change-password" element={<AccountChangePassword />} />
+                  {/* Aliase für alte Pfade */}
+                  <Route path="/account/password" element={<AccountChangePassword />} />
+                  <Route path="/tenant/:tenantId/account/password" element={<AccountChangePassword />} />
 
                   {/* Tenant-Bereich */}
                   <Route
@@ -148,7 +137,7 @@ const App = () => {
 
                   {/* Form-Workflows */}
                   <Route
-                    path="/tenant/:tenantId/formular/:formName/:patientId"
+                    path="/tenant/:tenantId/formular/:formName/:userId"
                     element={
                       <RoleVisible allow={['FormDataEditor','FormPublisher','Operator']}>
                         <UserForm />
@@ -164,14 +153,13 @@ const App = () => {
                     }
                   />
 
-                  {/* Legacy-Pfade → automatisch auf /tenant/:tid/<alterPfad> umbiegen */}
-                  <Route path="/admin" element={<LegacyToTenantPrefix />} />
-                  <Route path="/admin/forms" element={<LegacyToTenantPrefix />} />
-                  <Route path="/admin/users" element={<LegacyToTenantPrefix />} />
-                  <Route path="/manage" element={<LegacyToTenantPrefix />} />
-                  <Route path="/formular/:formName/:patientId" element={<LegacyToTenantPrefix />} />
-                  <Route path="/formular/:formName" element={<LegacyToTenantPrefix />} />
-                  <Route path="/formular-test/:formName" element={<LegacyToTenantPrefix />} />
+                  {/* Legacy-Pfade */}
+                  <Route path="/admin" element={<TenantRedirect to="admin" />} />
+                  <Route path="/admin/forms" element={<TenantRedirect to="admin/forms" />} />
+                  <Route path="/admin/users" element={<TenantRedirect to="admin/users" />} />
+                  <Route path="/manage" element={<TenantRedirect to="manage" />} />
+                  <Route path="/formular/:formName/:patientId" element={<TenantRedirect to="formular/:formName/:patientId" />} />
+                  <Route path="/formular-test/:formName" element={<TenantRedirect to="formular-test/:formName" />} />
 
                   {/* Start & Fallback */}
                   <Route path="/" element={<Home />} />
