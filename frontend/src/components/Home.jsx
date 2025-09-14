@@ -1,76 +1,79 @@
-// src/components/Home.jsx
 import React from 'react';
-import { Box, Paper, Stack, Button, Typography } from '@mui/material';
-import { Link, useParams } from 'react-router-dom';
-import usePerms, { PERMS as P } from '@/hooks/usePerms';
+import { Box, Button, Paper, Stack, Typography } from '@mui/material';
+import { Link } from 'react-router-dom';
+import { useTenant } from '@/context/TenantContext';
 import { useAuth } from '@/context/AuthContext';
 
 export default function Home() {
+  const { tenantId } = useTenant();
   const { user } = useAuth();
-  const { can } = usePerms();
-  const { tenantId } = useParams();
 
-  const isSysAdmin = !!user?.isSystemAdmin;
-  const isTenantAdminHere = !!user?.isTenantAdmin && user?.tenantId === tenantId;
-
-  const canAdminButton =
-    isSysAdmin || isTenantAdminHere || can(P.FORM_CREATE) || can(P.FORM_PUBLISH);
-
-  const canManageButton =
-    isSysAdmin || isTenantAdminHere || can(P.FORMDATA_EDIT);
+  const isTenantAdmin = !!user?.isTenantAdmin;
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" sx={{ mb: 2 }}>
-        Tenant: <strong>{tenantId}</strong>
-      </Typography>
-
       <Paper sx={{ p: 2, mb: 2 }}>
-        <Typography variant="h6" sx={{ mb: 2 }}>Aktionen</Typography>
-        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
+        <Typography variant="h6" gutterBottom>Aktionen</Typography>
+
+        <Stack direction="row" spacing={2} flexWrap="wrap">
+          {/* Formular-Administration */}
           <Button
             component={Link}
-            to={`/tenant/${encodeURIComponent(tenantId)}/admin`}
+            to={tenantId ? `/tenant/${encodeURIComponent(tenantId)}/admin` : '#'}
             variant="contained"
-            disabled={!canAdminButton}
+            disabled={!tenantId}
           >
             Formularadministration
           </Button>
 
+          {/* Formularzuweisung */}
           <Button
             component={Link}
-            to={`/tenant/${encodeURIComponent(tenantId)}/manage`}
+            to={tenantId ? `/tenant/${encodeURIComponent(tenantId)}/manage` : '#'}
             variant="outlined"
-            disabled={!canManageButton}
+            disabled={!tenantId}
           >
             Formularzuweisung
           </Button>
 
+          {/* Formular-Test */}
           <Button
             component={Link}
-            to={`/tenant/${encodeURIComponent(tenantId)}/formular-test/Beispiel`}
+            to={tenantId ? `/tenant/${encodeURIComponent(tenantId)}/formular-test/demo` : '#'}
             variant="text"
+            disabled={!tenantId}
           >
             Formular-Test öffnen
           </Button>
 
-          {isSysAdmin && (
+          {/* ➕ Benutzerverwaltung (nur für TenantAdmins) */}
+          {isTenantAdmin && (
             <Button
               component={Link}
-              to="/system"
-              variant="text"
-              color="secondary"
+              to={tenantId ? `/tenant/${encodeURIComponent(tenantId)}/admin/users` : '#'}
+              variant="outlined"
+              disabled={!tenantId}
             >
-              Systembereich
+              Benutzerverwaltung
+            </Button>
+          )}
+
+          {/* ➕ Gruppenverwaltung (nur für TenantAdmins) */}
+          {isTenantAdmin && (
+            <Button
+              component={Link}
+              to={tenantId ? `/tenant/${encodeURIComponent(tenantId)}/admin/groups` : '#'}
+              variant="outlined"
+              disabled={!tenantId}
+            >
+              Gruppenverwaltung
             </Button>
           )}
         </Stack>
       </Paper>
 
       <Paper sx={{ p: 2 }}>
-        <Typography variant="body1">
-          Willkommen! Wählen Sie eine Aktion.
-        </Typography>
+        Willkommen! Wählen Sie eine Aktion.
       </Paper>
     </Box>
   );

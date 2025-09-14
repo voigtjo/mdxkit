@@ -30,6 +30,7 @@ export function refresh(refreshToken, rotate = false) {
 }
 
 export function logout(accessToken) {
+  console.log('[API] POST /auth/logout (Bearer present? ', !!accessToken, ')');
   return j(fetch(`${base}/logout`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },

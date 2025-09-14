@@ -1,6 +1,7 @@
 // src/App.jsx
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import RoleVisible from './routes/RoleVisible';
 import DebugGate from './debug/DebugGate';
@@ -19,14 +20,13 @@ import AdminUsers from './components/AdminUsers';
 
 import SystemHome from './components/system/SystemHome';
 import TenantAdmin from './components/system/TenantAdmin';
+import TenantAdmins from './components/system/TenantAdmins'; // ✅ neue Seite (Tenant-Admin-Verwaltung)
 
 import AuthProvider, { useAuth } from './context/AuthContext';
 import AuthGate from './components/AuthGate';
 import HeaderUser from './components/HeaderUser';
 
-// NEU:
 import AccountChangePassword from './components/AccountChangePassword';
-// NEU: SysAdmin-Verwaltung
 import SysAdminAdmin from './components/system/SysAdminAdmin';
 
 function TenantRedirect({ to }) {
@@ -35,21 +35,41 @@ function TenantRedirect({ to }) {
   return <Navigate to={`/tenant/${encodeURIComponent(tenantId)}/${to}`} replace />;
 }
 
+function LegacyToTenantPrefix() {
+  const { tenantId } = useTenant();
+  const { formName, userId } = useParams();
+  if (!tenantId) return <Navigate to="/" replace />;
+  return (
+    <Navigate
+      to={`/tenant/${encodeURIComponent(tenantId)}/formular/${encodeURIComponent(formName)}/${encodeURIComponent(userId)}`}
+      replace
+    />
+  );
+}
+
 function LayoutWithConditionalHeader({ children }) {
   const { user } = useAuth();
+  const { tenantId } = useTenant();
   const isSysAdmin = !!user?.isSystemAdmin;
+  const nav = useNavigate();
+  const loc = useLocation();
+
+  React.useEffect(() => {
+    if (!user || isSysAdmin) return;
+    if (!tenantId) return;
+    const p = loc.pathname || '';
+    const isTenantPath  = p.startsWith('/tenant/');
+    const isAccountPath = p.startsWith('/account/') || p.includes('/account/change-password');
+    if (!isTenantPath && !isAccountPath) {
+      nav(`/tenant/${encodeURIComponent(tenantId)}`, { replace: true });
+    }
+  }, [user, isSysAdmin, tenantId, loc.pathname, nav]);
+
   if (!user) return children;
+
   return (
     <>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          padding: '8px 12px',
-        }}
-      >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 12px' }}>
         {isSysAdmin ? <TenantBar /> : <div />}
         <HeaderUser />
       </div>
@@ -71,13 +91,12 @@ const App = () => {
                   {/* Systembereich */}
                   <Route path="/system" element={<SystemHome />} />
                   <Route path="/system/tenants" element={<TenantAdmin />} />
-                  {/* ➕ SysAdmin-Verwaltung */}
+                  <Route path="/system/tenants/admins" element={<TenantAdmins />} />
                   <Route path="/system/admins" element={<SysAdminAdmin />} />
 
-                  {/* Passwort ändern – ohne & mit Tenant-Prefix */}
+                  {/* Passwort ändern – ohne & mit Tenant-Prefix (+ Aliase) */}
                   <Route path="/account/change-password" element={<AccountChangePassword />} />
                   <Route path="/tenant/:tenantId/account/change-password" element={<AccountChangePassword />} />
-                  {/* Aliase für alte Pfade */}
                   <Route path="/account/password" element={<AccountChangePassword />} />
                   <Route path="/tenant/:tenantId/account/password" element={<AccountChangePassword />} />
 
@@ -85,17 +104,17 @@ const App = () => {
                   <Route
                     path="/tenant/:tenantId"
                     element={
-                      <RoleVisible allow={['FormAuthor','FormPublisher','Operator']}>
+                      <RoleVisible allow={['TenantAdmin','FormAuthor','FormPublisher','Operator']}>
                         <Home />
                       </RoleVisible>
                     }
                   />
 
-                  {/* Admin (FormAuthor ODER FormPublisher) */}
+                  {/* Admin (→ TenantAdmin darf hier hinein) */}
                   <Route
                     path="/tenant/:tenantId/admin"
                     element={
-                      <RoleVisible allow={['FormAuthor','FormPublisher']}>
+                      <RoleVisible allow={['TenantAdmin','FormAuthor','FormPublisher']}>
                         <AdminIndex />
                       </RoleVisible>
                     }
@@ -103,7 +122,7 @@ const App = () => {
                   <Route
                     path="/tenant/:tenantId/admin/forms"
                     element={
-                      <RoleVisible allow={['FormAuthor','FormPublisher']}>
+                      <RoleVisible allow={['TenantAdmin','FormAuthor','FormPublisher']}>
                         <AdminIndex />
                       </RoleVisible>
                     }
@@ -111,15 +130,15 @@ const App = () => {
                   <Route
                     path="/tenant/:tenantId/admin/users"
                     element={
-                      <RoleVisible allow={['FormAuthor','FormPublisher']}>
-                        <AdminIndex />
+                      <RoleVisible allow={['TenantAdmin','FormAuthor','FormPublisher']}>
+                        <AdminUsers /> {/* ✅ spezielle Benutzerverwaltung */}
                       </RoleVisible>
                     }
                   />
                   <Route
                     path="/tenant/:tenantId/admin/groups"
                     element={
-                      <RoleVisible allow={['FormAuthor','FormPublisher']}>
+                      <RoleVisible allow={['TenantAdmin','FormAuthor','FormPublisher']}>
                         <AdminIndex />
                       </RoleVisible>
                     }
@@ -129,7 +148,7 @@ const App = () => {
                   <Route
                     path="/tenant/:tenantId/manage"
                     element={
-                      <RoleVisible allow={['Operator']}>
+                      <RoleVisible allow={['Operator','TenantAdmin']}>
                         <ManageForms />
                       </RoleVisible>
                     }
@@ -158,7 +177,7 @@ const App = () => {
                   <Route path="/admin/forms" element={<TenantRedirect to="admin/forms" />} />
                   <Route path="/admin/users" element={<TenantRedirect to="admin/users" />} />
                   <Route path="/manage" element={<TenantRedirect to="manage" />} />
-                  <Route path="/formular/:formName/:patientId" element={<TenantRedirect to="formular/:formName/:patientId" />} />
+                  <Route path="/formular/:formName/:userId" element={<LegacyToTenantPrefix />} />
                   <Route path="/formular-test/:formName" element={<TenantRedirect to="formular-test/:formName" />} />
 
                   {/* Start & Fallback */}

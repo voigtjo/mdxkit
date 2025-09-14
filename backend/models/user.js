@@ -1,3 +1,4 @@
+// backend/models/user.js
 const mongoose = require('mongoose');
 const withUid = require('../plugins/withUid');
 
@@ -11,10 +12,10 @@ const membershipSchema = new mongoose.Schema(
 
 const userSchema = new mongoose.Schema(
   {
-    // NEU: stabile, servergenerierte Public-ID
+    // stabile, servergenerierte Public-ID
     userId: { type: String, unique: true, index: true },
 
-    // NEU: Tenant als ObjectId-Referenz (vorher: String)
+    // Tenant-Referenz
     tenant: { type: mongoose.Schema.Types.ObjectId, ref: 'Tenant', required: true, index: true },
 
     displayName: { type: String, required: true, trim: true },
@@ -22,8 +23,8 @@ const userSchema = new mongoose.Schema(
     status: { type: String, enum: ['active','suspended','deleted'], default: 'active' },
 
     // Admin-Flags
-    isSystemAdmin: { type: Boolean, default: false }, // nur via /api/sys/... setzbar
-    isTenantAdmin: { type: Boolean, default: false }, // tenant-scope: ja, aber mit Regeln
+    isSystemAdmin: { type: Boolean, default: false },
+    isTenantAdmin: { type: Boolean, default: false },
 
     // Defaultgruppe (gehört zu memberships)
     defaultGroupId: { type: mongoose.Schema.Types.ObjectId, ref: 'Group', default: null },
@@ -31,7 +32,7 @@ const userSchema = new mongoose.Schema(
     // Mitgliedschaften mit rollenbezogener Zuweisung
     memberships: { type: [membershipSchema], default: [] },
 
-    // Lokale Auth (falls genutzt)
+    // Lokale Auth
     passwordHash: { type: String, default: '' }, // bcrypt Hash (leer = kein lokales Passwort)
     tokenVersion: { type: Number, default: 0 },
 
@@ -43,6 +44,22 @@ const userSchema = new mongoose.Schema(
     },
 
     profile: { type: Object, default: {} },
+
+    /* -------- Invite-Tracking (für Einladungs-Emails) -------- */
+    // Zeitpunkt der (ersten) Einladung
+    invitedAt: { type: Date, default: null },
+    // nach Einladung muss das Passwort zwingend geändert werden
+    mustChangePassword: { type: Boolean, default: false },
+    // Zeitpunkt des letzten E-Mail-Versands (Invite/Resend)
+    lastInviteEmailAt: { type: Date, default: null },
+    // Ergebnis des letzten Versands
+    lastInviteEmailStatus: {
+      type: String,
+      enum: ['sent', 'failed', 'dryrun', null],
+      default: null,
+    },
+    // optional: wer eingeladen hat
+    invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true }
 );

@@ -1,180 +1,188 @@
-import React, { useEffect, useMemo, useState } from 'react';
+// frontend/src/components/system/TenantAdmin.jsx
+import React, { useEffect, useState } from 'react';
 import {
-  Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, Switch, TextField, Typography, IconButton, Tooltip,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Stack
+  Box, Paper, Stack, Typography, Button, TextField, Alert,
+  Table, TableHead, TableRow, TableCell, TableBody, Chip, IconButton, Tooltip, Divider
 } from '@mui/material';
-import { Add as AddIcon, Edit as EditIcon, DeleteOutline, CheckCircle, Block } from '@mui/icons-material';
-import { listAllTenants, createTenant, setTenantStatus, updateTenant } from '../../api/tenantApi';
+import { Add as AddIcon, Edit, Save, Cancel, CheckCircle, Block } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { listAllTenants, createTenant, updateTenant, setTenantStatus } from '@/api/tenantApi';
 
 export default function TenantAdmin() {
   const nav = useNavigate();
-
-  const [items, setItems] = useState([]);
-  const [showSuspended, setShowSuspended] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  // Dialog State
-  const [open, setOpen] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [form, setForm] = useState({ tenantId: '', name: '' });
+  const [list, setList] = useState([]);
+  const [err, setErr] = useState('');
+  const [info, setInfo] = useState('');
+  const [creating, setCreating] = useState({ tenantId: '', name: '' });
+  const [editingId, setEditingId] = useState(null);
+  const [editName, setEditName] = useState('');
 
   const load = async () => {
-    setLoading(true);
     try {
-      const all = await listAllTenants();
-      setItems(all || []);
+      setErr('');
+      const rows = await listAllTenants();
+      setList(rows || []);
     } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+      setErr('Konnte Tenants nicht laden.');
     }
   };
-
   useEffect(() => { load(); }, []);
 
-  const filtered = useMemo(() => {
-    return (items || []).filter(t => showSuspended ? true : t.status === 'active');
-  }, [items, showSuspended]);
-
-  const onNew = () => {
-    setEditMode(false);
-    setForm({ tenantId: '', name: '' });
-    setOpen(true);
-  };
-
-  const onEdit = (t) => {
-    setEditMode(true);
-    setForm({ tenantId: t.tenantId, name: t.name });
-    setOpen(true);
-  };
-
-  const handleSave = async () => {
+  const onCreate = async () => {
+    setInfo(''); setErr('');
     try {
-      if (!form.tenantId || !/^[a-zA-Z0-9_-]{2,64}$/.test(form.tenantId)) {
-        alert('Ungültige tenantId (a–Z, 0–9, _ , -, 2–64)'); return;
+      if (!creating.tenantId || !creating.name) {
+        setErr('Bitte tenantId und Name angeben.');
+        return;
       }
-      if (!form.name) { alert('Name erforderlich'); return; }
-
-      if (editMode) {
-        await updateTenant(form.tenantId, { name: form.name });
-      } else {
-        await createTenant({ tenantId: form.tenantId, name: form.name });
-      }
-      setOpen(false);
-      load();
+      await createTenant({ tenantId: creating.tenantId, name: creating.name });
+      setCreating({ tenantId: '', name: '' });
+      setInfo('Tenant angelegt.');
+      await load();
     } catch (e) {
-      console.error(e);
-      alert(e?.response?.data?.error || 'Fehler beim Speichern');
+      setErr(e?.response?.data?.error || e?.message || 'Fehler beim Anlegen.');
     }
   };
 
-  const softDelete = async (tenantId) => {
-    if (!window.confirm(`Tenant "${tenantId}" wirklich (soft) löschen? Er wird suspendiert.`)) return;
-    await setTenantStatus(tenantId, 'suspended'); // Soft-Delete = suspend
-    load();
+  const startEdit = (t) => {
+    setEditingId(t.tenantId);
+    setEditName(t.name);
+  };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditName('');
+  };
+  const saveEdit = async (t) => {
+    try {
+      await updateTenant(t.tenantId, { name: editName });
+      setInfo('Gespeichert.');
+      cancelEdit();
+      await load();
+    } catch (e) {
+      setErr(e?.response?.data?.error || e?.message || 'Fehler beim Speichern.');
+    }
   };
 
-  const activate = async (tenantId) => {
-    await setTenantStatus(tenantId, 'active');
-    load();
-  };
-
-  const suspend = async (tenantId) => {
-    await setTenantStatus(tenantId, 'suspended');
-    load();
+  const toggleStatus = async (t) => {
+    try {
+      const next = t.status === 'active' ? 'suspended' : 'active';
+      await setTenantStatus(t.tenantId, next);
+      setInfo(`Status: ${next}`);
+      await load();
+    } catch (e) {
+      setErr(e?.response?.data?.error || e?.message || 'Fehler beim Statuswechsel.');
+    }
   };
 
   return (
-    <Box sx={{ p: 2 }}>
+    <Box sx={{ p: 3 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>Tenant-Administration</Typography>
-        <Button variant="outlined" onClick={() => nav('/system')}>← Zurück</Button>
+        <Typography variant="h5">Mandantenverwaltung</Typography>
+        <Button variant="outlined" onClick={() => nav('/system')}>Zurück</Button>
       </Stack>
 
-      <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-        <FormControlLabel
-          control={<Switch checked={showSuspended} onChange={(e) => setShowSuspended(e.target.checked)} />}
-          label="auch gesperrte anzeigen"
-        />
-        <Box sx={{ flexGrow: 1 }} />
-        <Button variant="contained" startIcon={<AddIcon />} onClick={onNew}>Neuen Tenant anlegen</Button>
-      </Box>
+      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+      {info && <Alert severity="info" sx={{ mb: 2 }}>{info}</Alert>}
 
-      <TableContainer component={Paper} elevation={0}>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell width={220}>Tenant-ID</TableCell>
-              <TableCell>Name</TableCell>
-              <TableCell width={140}>Status</TableCell>
-              <TableCell align="right" width={260}>Aktionen</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {filtered.map(t => (
-              <TableRow key={t.tenantId} hover>
-                <TableCell><code>{t.tenantId}</code></TableCell>
-                <TableCell>{t.name}</TableCell>
-                <TableCell>
-                  {t.status === 'active'
-                    ? <Chip icon={<CheckCircle />} color="success" label="aktiv" size="small" />
-                    : <Chip icon={<Block />} color="warning" label="gesperrt" size="small" />
-                  }
-                </TableCell>
-                <TableCell align="right">
-                  <Tooltip title="Bearbeiten">
-                    <IconButton onClick={() => onEdit(t)}><EditIcon /></IconButton>
-                  </Tooltip>
-                  {t.status === 'active' ? (
-                    <Tooltip title="Sperren">
-                      <IconButton onClick={() => suspend(t.tenantId)}><Block /></IconButton>
-                    </Tooltip>
-                  ) : (
-                    <Tooltip title="Reaktivieren">
-                      <IconButton onClick={() => activate(t.tenantId)}><CheckCircle /></IconButton>
-                    </Tooltip>
-                  )}
-                  <Tooltip title="Soft-Delete (suspendieren)">
-                    <IconButton onClick={() => softDelete(t.tenantId)} color="error">
-                      <DeleteOutline />
-                    </IconButton>
-                  </Tooltip>
-                </TableCell>
-              </TableRow>
-            ))}
-            {!loading && filtered.length === 0 && (
-              <TableRow><TableCell colSpan={4}><Typography variant="body2">Keine Tenants gefunden.</Typography></TableCell></TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
-
-      {/* Dialog: Neu / Bearbeiten */}
-      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>{editMode ? 'Tenant bearbeiten' : 'Neuen Tenant anlegen'}</DialogTitle>
-        <DialogContent sx={{ display: 'grid', gap: 2, pt: 2 }}>
+      {/* Anlegen (inline, kein Dialog) */}
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Typography variant="subtitle1" sx={{ mb: 1 }}>Neuen Tenant anlegen</Typography>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
           <TextField
-            label="Tenant-ID"
-            value={form.tenantId}
-            onChange={(e) => setForm(f => ({ ...f, tenantId: e.target.value.trim() }))}
-            InputProps={{ readOnly: editMode }}
-            helperText="a–Z, 0–9, _ , -, 2–64"
-            required
+            label="tenantId"
+            size="small"
+            value={creating.tenantId}
+            onChange={e => setCreating(c => ({ ...c, tenantId: e.target.value }))}
+            helperText="a–Z, 0–9, -, _"
           />
           <TextField
             label="Name"
-            value={form.name}
-            onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))}
-            required
+            size="small"
+            value={creating.name}
+            onChange={e => setCreating(c => ({ ...c, name: e.target.value }))}
           />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpen(false)}>Abbrechen</Button>
-          <Button variant="contained" onClick={handleSave}>Speichern</Button>
-        </DialogActions>
-      </Dialog>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={onCreate}>
+            Anlegen
+          </Button>
+        </Stack>
+      </Paper>
+
+      <Paper>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Tenant</TableCell>
+              <TableCell>Name</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell align="right" width={220}>Aktionen</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {list.map(t => (
+              <TableRow key={t.tenantId} hover>
+                <TableCell>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography>{t.tenantId}</Typography>
+                    <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        localStorage.setItem('tenantAdmins.selectedTenant', t.tenantId);
+                        nav('/system/tenants/admins');
+                      }}
+                    >
+                      Admins verwalten
+                    </Button>
+                  </Stack>
+                </TableCell>
+
+                <TableCell>
+                  {editingId === t.tenantId ? (
+                    <TextField size="small" value={editName} onChange={e => setEditName(e.target.value)} />
+                  ) : (
+                    t.name
+                  )}
+                </TableCell>
+
+                <TableCell>
+                  <Chip size="small" label={t.status || 'active'} />
+                </TableCell>
+
+                <TableCell align="right">
+                  {editingId === t.tenantId ? (
+                    <>
+                      <Tooltip title="Speichern">
+                        <IconButton onClick={() => saveEdit(t)}><Save /></IconButton>
+                      </Tooltip>
+                      <Tooltip title="Abbrechen">
+                        <IconButton onClick={cancelEdit}><Cancel /></IconButton>
+                      </Tooltip>
+                    </>
+                  ) : (
+                    <>
+                      <Tooltip title="Bearbeiten">
+                        <IconButton onClick={() => startEdit(t)}><Edit /></IconButton>
+                      </Tooltip>
+                      {t.status === 'active' ? (
+                        <Tooltip title="Sperren">
+                          <span><IconButton onClick={() => toggleStatus(t)}><Block /></IconButton></span>
+                        </Tooltip>
+                      ) : (
+                        <Tooltip title="Aktivieren">
+                          <span><IconButton onClick={() => toggleStatus(t)}><CheckCircle /></IconButton></span>
+                        </Tooltip>
+                      )}
+                    </>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+            {list.length === 0 && (
+              <TableRow><TableCell colSpan={4}>Keine Tenants vorhanden.</TableCell></TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Paper>
     </Box>
   );
 }

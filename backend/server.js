@@ -15,6 +15,7 @@ const tenantsPublicRoutes = require('./routes/tenants-public'); // /api/tenants 
 const sysTenantsRoutes    = require('./routes/sysTenants');     // /api/sys/tenants (SYSTEM)
 const roleSysRoutes       = require('./routes/roles.sys');      // /api/sys/roles   (SYSTEM)
 const sysUsersRoutes      = require('./routes/sysUsers');       // /api/sys/users   (SYSTEM)
+const userInvitesRoutes = require('./routes/userInvites');
 
 const adminRoutes   = require('./routes/admin');                 // /api/tenant/:tenantId/admin
 const manageRoutes  = require('./routes/manage');                // /api/tenant/:tenantId/manage
@@ -24,6 +25,7 @@ const groupRoutes   = require('./routes/groups');                // /api/tenant/
 
 // backend/server.js
 const sysAdminsRouter = require('./routes/sysAdmins');
+const sysTenantAdminsRoutes = require('./routes/sysTenantAdmins');
 const sysTestMail = require('./routes/sysTestMail');
 
 const app   = express();
@@ -101,6 +103,7 @@ app.use('/api/tenants', tenantsPublicRoutes);
 
 /* ---------------------- SYSTEM (no tenant) ---------------------- */
 app.use('/api/sys/tenants', sysTenantsRoutes);
+app.use('/api/sys/tenants', sysTenantAdminsRoutes);
 app.use('/api/sys/roles',   roleSysRoutes);
 app.use('/api/sys/users',   sysUsersRoutes);
 
@@ -112,6 +115,7 @@ app.use('/api/tenant/:tenantId/groups', tenantFromParam, authRequired, groupRout
 app.use('/api/tenant/:tenantId/manage', tenantFromParam, authRequired, manageRoutes);
 app.use('/api/tenant/:tenantId/form',   tenantFromParam, authRequired, formRoutes);
 app.use('/api/tenant/:tenantId/users',  tenantFromParam, authRequired, usersRoutes);
+app.use('/api/tenant/:tenantId/users', tenantFromParam, authRequired, userInvitesRoutes);
 
 /* ---------------------- 404 & Error Handling ---------------------- */
 app.use((req, res) => {

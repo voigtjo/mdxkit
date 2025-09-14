@@ -2,12 +2,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
+  Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
   IconButton, Paper, Stack, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TextField, Typography, Tooltip, Chip, FormControl,
-  InputLabel, Select, MenuItem, OutlinedInput
+  InputLabel, Select, MenuItem, OutlinedInput, CircularProgress
 } from '@mui/material';
-import { Add as AddIcon, Edit as EditIcon, DeleteOutline } from '@mui/icons-material';
+import { Add as AddIcon, Edit as EditIcon, DeleteOutline, Send as SendIcon } from '@mui/icons-material';
+
 import { getUsers, createUser, updateUser, deleteUser, getUserById } from '@/api/userApi';
 import { listGroups } from '@/api/groupApi';
 import { listRoles } from '@/api/roleApi';
@@ -41,6 +42,11 @@ function roleChipsForUser(user) {
   }));
 }
 
+// Kleiner Helfer: Access-Token lesen (für fetch-basierte Zusatz-Calls)
+function getAccess() {
+  try { return localStorage.getItem('accessToken') || ''; } catch { return ''; }
+}
+
 export default function AdminUsers() {
   const { tenantId: tenantFromUrl } = useParams();
   const { tenantId: tenantFromCtx } = useTenant();
@@ -55,8 +61,13 @@ export default function AdminUsers() {
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState('');
 
-  const [groups, setGroups] = useState([]); // {_id, name}
-  const [roles, setRoles] = useState([]);   // {key, name}
+  const [groups, setGroups] = useState([]);
+  const [roles, setRoles] = useState([]);
+
+  // UI-Feedback für Mailversand
+  const [infoMsg, setInfoMsg] = useState('');
+  const [errMsg, setErrMsg]   = useState('');
+  const [resendBusy, setResendBusy] = useState({}); // { [userId]: true }
 
   const load = async () => {
     setLoading(true);
@@ -83,7 +94,6 @@ export default function AdminUsers() {
   }, [groups]);
 
   const roleOptions  = useMemo(() => roles.map(r => ({ value: r.key, label: r.name || r.key })), [roles]);
-
   const title = useMemo(() => editingId ? 'User bearbeiten' : 'Neuen User anlegen', [editingId]);
 
   const onOpenCreate = () => {
@@ -120,8 +130,31 @@ export default function AdminUsers() {
     return has ? defaultGroupId : null;
   };
 
+  async function resendInvite(userId, emailHint) {
+    setErrMsg(''); setInfoMsg('');
+    setResendBusy(b => ({ ...b, [userId]: true }));
+    try {
+      const res = await fetch(
+        `/api/tenant/${encodeURIComponent(tid)}/users/${encodeURIComponent(userId)}/invite`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAccess()}` } }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Versand fehlgeschlagen');
+
+      // Erwartet: { ok:true, invitedAt, lastInviteEmailAt, lastInviteEmailStatus, message? }
+      setInfoMsg(data?.message || `Einladung gesendet an ${emailHint || ''}`.trim());
+      await load();
+    } catch (e) {
+      console.error(e);
+      setErrMsg(e.message || 'Versand fehlgeschlagen');
+    } finally {
+      setResendBusy(b => ({ ...b, [userId]: false }));
+    }
+  }
+
   const onSave = async () => {
     try {
+      setErrMsg(''); setInfoMsg('');
       if (!form.displayName || form.displayName.trim().length < 2) {
         setError('Bitte einen Anzeigenamen mit mind. 2 Zeichen angeben.');
         return;
@@ -142,11 +175,18 @@ export default function AdminUsers() {
 
       if (editingId) {
         await updateUser(editingId, payload);
+        setOpen(false);
+        await load();
       } else {
-        await createUser(payload);
+        const created = await createUser(payload);
+        setOpen(false);
+        await load();
+
+        // Falls Email angegeben → automatisch Einladungsmail auslösen
+        if (created?._id && payload.email) {
+          await resendInvite(created._id, payload.email);
+        }
       }
-      setOpen(false);
-      await load();
     } catch (e) {
       console.error(e);
       setError(e.response?.data?.error || e.message);
@@ -197,6 +237,18 @@ export default function AdminUsers() {
     });
   };
 
+  // Spalten-Definition (Hydration-sicher)
+  const headCols = useMemo(() => ([
+    { key: 'name',    label: 'Name' },
+    { key: 'email',   label: 'E-Mail' },
+    { key: 'status',  label: 'Status' },
+    { key: 'defgrp',  label: 'Default-Gruppe' },
+    { key: 'roles',   label: 'Rollen' },
+    { key: 'invite',  label: 'Einladung' },
+    { key: 'ta',      label: 'TenantAdmin' },
+    { key: 'actions', label: 'Aktionen', align: 'right', style: { width: 170 } },
+  ]), []);
+
   return (
     <Box sx={{ p: 3 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between">
@@ -205,7 +257,7 @@ export default function AdminUsers() {
           <Tooltip title="Rollen-Kürzel: A=Author, P=Publisher, O=Operator, E=Editor, R=Release">
             <Chip size="small" label="A/P/O/E/R" />
           </Tooltip>
-          <Button variant="outlined" onClick={() => navigate(`/tenant/${tid}/admin`)}>Zurück</Button>
+          <Button variant="outlined" onClick={() => navigate(`/tenant/${tid}`)}>Zurück</Button>
           <Button variant="contained" startIcon={<AddIcon />} onClick={onOpenCreate}>Neu</Button>
         </Stack>
       </Stack>
@@ -215,19 +267,19 @@ export default function AdminUsers() {
         angemeldete Arbeitsgruppe.
       </Typography>
 
+      {infoMsg && <Alert sx={{ mt: 2 }} severity="success" onClose={() => setInfoMsg('')}>{infoMsg}</Alert>}
+      {errMsg  && <Alert sx={{ mt: 2 }} severity="error"   onClose={() => setErrMsg('')}>{errMsg}</Alert>}
+
       <TableContainer component={Paper} sx={{ mt: 2 }}>
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>E-Mail</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Default-Gruppe</TableCell>
-              <TableCell>Rollen</TableCell>
-              <TableCell>TenantAdmin</TableCell>
-              <TableCell align="right" style={{ width: 140 }}>Aktionen</TableCell>
+              {headCols.map(col => (
+                <TableCell key={col.key} align={col.align} style={col.style}>{col.label}</TableCell>
+              ))}
             </TableRow>
           </TableHead>
+
           <TableBody>
             {rows.map((r) => {
               const defName = r.defaultGroupId
@@ -235,12 +287,20 @@ export default function AdminUsers() {
                 : '—';
               const chips = roleChipsForUser(r);
 
+              // Einladungsinfos (Backend-Felder tolerant genutzt)
+              const invitedAt = r.lastInviteEmailAt || r.invitedAt || null;
+              const inviteStatus = r.lastInviteEmailStatus || (invitedAt ? 'sent' : null);
+              const invitedLabel = invitedAt
+                ? new Date(invitedAt).toLocaleString()
+                : '—';
+
               return (
                 <TableRow key={r._id} hover>
                   <TableCell>{r.displayName || r.name || '—'}</TableCell>
                   <TableCell>{r.email || '—'}</TableCell>
                   <TableCell><Chip size="small" label={r.status || 'active'} /></TableCell>
                   <TableCell>{defName}</TableCell>
+
                   <TableCell>
                     <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
                       {chips.length === 0 ? (
@@ -252,8 +312,38 @@ export default function AdminUsers() {
                       ))}
                     </Stack>
                   </TableCell>
+
+                  <TableCell>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Chip
+                        size="small"
+                        color={inviteStatus === 'sent' ? 'success' : inviteStatus === 'failed' ? 'error' : 'default'}
+                        label={inviteStatus === 'sent' ? 'gesendet' : inviteStatus === 'failed' ? 'fehlgeschlagen' : '—'}
+                      />
+                      <Typography variant="caption" color="text.secondary">
+                        {invitedAt ? invitedLabel : ''}
+                      </Typography>
+                    </Stack>
+                  </TableCell>
+
                   <TableCell>{r.isTenantAdmin ? <Chip size="small" label="yes" /> : <Chip size="small" label="no" />}</TableCell>
-                  <TableCell align="right">
+
+                  <TableCell align="right" style={{ width: 170 }}>
+                    <Tooltip title={invitedAt ? 'Einladung erneut senden' : 'Einladung senden'}>
+                      <span>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={resendBusy[r._id] ? <CircularProgress size={14} /> : <SendIcon />}
+                          disabled={resendBusy[r._id] || !r.email}
+                          onClick={() => resendInvite(r._id, r.email)}
+                          sx={{ mr: 1 }}
+                        >
+                          {invitedAt ? 'Resend' : 'Senden'}
+                        </Button>
+                      </span>
+                    </Tooltip>
+
                     <Tooltip title="Bearbeiten">
                       <IconButton onClick={() => onOpenEdit(r)} size="small"><EditIcon fontSize="small" /></IconButton>
                     </Tooltip>
@@ -266,9 +356,10 @@ export default function AdminUsers() {
                 </TableRow>
               );
             })}
+
             {!loading && rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7}>
+                <TableCell colSpan={8}>
                   <Typography variant="body2" color="text.secondary">Keine Benutzer vorhanden.</Typography>
                 </TableCell>
               </TableRow>

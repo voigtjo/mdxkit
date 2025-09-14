@@ -118,7 +118,7 @@ export default function AdminGroups() {
       <Stack direction="row" alignItems="center" justifyContent="space-between">
         <Typography variant="h5">Gruppen</Typography>
         <Stack direction="row" spacing={1}>
-          <Button variant="outlined" onClick={() => navigate(`/tenant/${tid}/admin`)}>Zurück</Button>
+          <Button variant="outlined" onClick={() => navigate(`/tenant/${tid}`)}>Zurück</Button>
           <Button variant="contained" startIcon={<AddIcon />} onClick={onOpenCreate}>Neu</Button>
         </Stack>
       </Stack>

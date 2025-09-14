@@ -94,6 +94,26 @@ Bitte melde dich an und ändere das Passwort sofort.
   return { to: email, subject, text, html };
 }
 
+// backend/mail/index.js (Ausschnitt)
+function inviteTenantUserEmail({ email, displayName, tenantName, tenantId, tempPassword, loginUrl }) {
+  return {
+    to: email,
+    subject: `[MDXKit] Einladung (${tenantName || tenantId})`,
+    text:
+      `Hallo ${displayName || email},\n\n` +
+      `Sie wurden für den Tenant "${tenantName || tenantId}" eingeladen.\n\n` +
+      `Login: ${loginUrl}\n` +
+      `Temporäres Passwort: ${tempPassword}\n\n` +
+      `Bitte melden Sie sich an und ändern Sie Ihr Passwort.\n`,
+    html:
+      `<p>Hallo ${displayName || email},</p>` +
+      `<p>Sie wurden für den Tenant <strong>${tenantName || tenantId}</strong> eingeladen.</p>` +
+      `<p><strong>Login:</strong> <a href="${loginUrl}">${loginUrl}</a><br>` +
+      `<strong>Temporäres Passwort:</strong> <code>${tempPassword}</code></p>` +
+      `<p>Bitte melden Sie sich an und ändern Sie Ihr Passwort.</p>`,
+  };
+}
+
 /** Simple HTML Escaper für Templates */
 function escapeHtml(s) {
   return String(s || '')
@@ -107,4 +127,5 @@ module.exports = {
   sendMail,
   inviteSysAdminEmail,
   inviteTenantAdminEmail,
+  inviteTenantUserEmail
 };

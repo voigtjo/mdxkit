@@ -1,27 +1,40 @@
-// src/routes/RoleVisible.jsx
 import React from 'react';
-import { useParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { useRoles } from '@/hooks/useRoles';
+import { useTenant } from '@/context/TenantContext';
 
+/**
+ * Gate, das anhand von Rollen rendert.
+ * - SysAdmin: immer erlaubt
+ * - "TenantAdmin": hängt an user.isTenantAdmin
+ * - sonst: Rollen der AKTIVEN GRUPPE (TenantContext.groupRoles)
+ */
 export default function RoleVisible({ allow = [], children, fallback = null }) {
   const { user } = useAuth();
-  const { tenantId } = useParams();
-  const { loading, isSysAdmin, isTenantAdmin, hasAnyRole } = useRoles();
+  const { groupRoles } = useTenant();
 
-  if (loading) return null;
-  if (!user) return null;
+  if (!user) return fallback;
 
-  const isTenantAdminHere =
-    !!isTenantAdmin &&
-    !!user?.tenantId &&
-    !!tenantId &&
-    String(user.tenantId) === String(tenantId);
+  // SysAdmin darf immer
+  if (user.isSystemAdmin) return children;
 
-  const ok =
-    isSysAdmin ||
-    isTenantAdminHere ||
-    hasAnyRole(allow);
+  // Wenn explizit TenantAdmin erlaubt ist
+  if (allow.includes('TenantAdmin') && user.isTenantAdmin) return children;
 
-  return ok ? children : fallback;
+  // Gruppenrollen prüfen
+  const roles = Array.isArray(groupRoles) ? groupRoles : [];
+  const ok = allow.length === 0 || allow.some(r => roles.includes(r));
+
+  if (ok) return children;
+
+  // Fallback mit Info
+  return (
+    <div style={{ padding: 16 }}>
+      <p style={{ color: '#b91c1c', fontWeight: 600, marginBottom: 8 }}>Kein Zugriff</p>
+      <p style={{ margin: 0 }}>
+        Benötigte Rollen: {allow.length ? allow.join(', ') : '—'}
+        <br />
+        Deine Rollen (aktive Gruppe): {roles.length ? roles.join(', ') : '—'}
+      </p>
+    </div>
+  );
 }

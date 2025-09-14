@@ -1,14 +1,29 @@
+// backend/routes/users.js
 const express = require('express');
 const router = express.Router({ mergeParams: true });
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const crypto = require('node:crypto');
+
 const User = require('../models/user');
 const Group = require('../models/group');
 const Role = require('../models/role');
+const Tenant = require('../models/tenant');
+
+const mail = require('../mail');
 const { requireRoles } = require('../middleware/authz');
 
 const FORBIDDEN_ROLE_KEYS = new Set(['SystemAdmin', 'TenantAdmin', 'GroupAdmin']);
 const isEmail = (v) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 const toObjectId = (v) => (mongoose.isValidObjectId(v) ? new mongoose.Types.ObjectId(v) : null);
+
+function randomPwd(len = 14) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  const bytes = crypto.randomBytes(len);
+  let out = '';
+  for (let i = 0; i < len; i++) out += alphabet[bytes[i] % alphabet.length];
+  return out;
+}
 
 /** Einheitliche Ausgabeform für User-Objekte */
 function sanitizeUser(u) {
@@ -31,6 +46,11 @@ function sanitizeUser(u) {
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
     tenant: u.tenant, // meist ObjectId
+    // Einladungs-/Onboarding-Felder:
+    invitedAt: u.invitedAt || null,
+    mustChangePassword: !!u.mustChangePassword,
+    lastInviteEmailAt: u.lastInviteEmailAt || null,
+    lastInviteEmailStatus: u.lastInviteEmailStatus || null,
   };
 }
 
@@ -68,7 +88,8 @@ router.get('/', async (req, res, next) => {
     const tenant = req.tenant; // ObjectId
     const users = await User.find(
       { tenant, status: { $ne: 'deleted' } },
-      'displayName email status defaultGroupId memberships isTenantAdmin'
+      // ➕ Felder für Einladung/Resend anzeigen:
+      'displayName email status defaultGroupId memberships isTenantAdmin invitedAt mustChangePassword lastInviteEmailAt lastInviteEmailStatus'
     ).lean();
 
     users.forEach(u => { u.name = u.displayName || u.email || ''; });
@@ -223,58 +244,94 @@ router.delete('/:id', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, re
 });
 
 /**
- * PUT /api/tenant/:tenantId/users/:userId/flags
- * Body: { isTenantAdmin?: boolean, defaultGroupId?: ObjectId | null }
+ * ✅ INVITE / RESEND
+ * POST /api/tenant/:tenantId/users/:userId/invite
+ * – setzt Temp-Passwort + mustChangePassword=true
+ * – versendet Einladungsmail
+ * – schreibt invitedAt / lastInviteEmailAt / lastInviteEmailStatus
  */
-router.put('/:userId/flags', async (req, res, next) => {
+router.post('/:userId/invite', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, res, next) => {
   try {
     const tenant = req.tenant;
     const { userId } = req.params;
     if (!mongoose.isValidObjectId(userId)) return res.status(400).json({ error: 'Invalid userId' });
 
     const user = await User.findOne({ _id: userId, tenant });
-    if (!user) return res.status(404).json({ error: 'User not found in tenant' });
+    if (!user || user.status === 'deleted') return res.status(404).json({ error: 'User nicht gefunden' });
+    if (!user.email) return res.status(400).json({ error: 'User hat keine E-Mail-Adresse' });
 
-    const { isTenantAdmin, defaultGroupId } = req.body || {};
+    const t = await Tenant.findById(tenant).lean();
+    const tenantName = t?.name || t?.tenantId || 'Tenant';
+    const tenantId   = t?.tenantId || '';
 
-    if (typeof isTenantAdmin === 'boolean') user.isTenantAdmin = isTenantAdmin;
+    // Temp-Passwort setzen + mustChangePassword
+    const tempPassword = randomPwd(14);
+    if (typeof user.setPassword === 'function') {
+      await user.setPassword(tempPassword);
+    } else {
+      const salt = await bcrypt.genSalt(10);
+      user.passwordHash = await bcrypt.hash(tempPassword, salt);
+    }
+    user.mustChangePassword = true;
+    if (!user.invitedAt) user.invitedAt = new Date();
+    await user.save();
 
-    if (defaultGroupId === null) {
-      user.defaultGroupId = null;
-    } else if (defaultGroupId) {
-      const gid = toObjectId(defaultGroupId);
-      if (!gid) return res.status(400).json({ error: 'Ungültige defaultGroupId' });
-      const grp = await Group.findOne({ _id: gid, tenant });
-      if (!grp) return res.status(400).json({ error: 'defaultGroupId not in tenant' });
-      user.defaultGroupId = grp._id;
+    // Mail aufbauen
+    const loginUrl = process.env.APP_PUBLIC_URL || process.env.APP_BASE_URL || 'http://localhost:5173';
+    const payload =
+      typeof mail.inviteTenantUserEmail === 'function'
+        ? mail.inviteTenantUserEmail({
+            email: user.email,
+            displayName: user.displayName || user.email,
+            tenantName,
+            tenantId,
+            tempPassword,
+            loginUrl,
+          })
+        : {
+            to: user.email,
+            subject: `[MDXKit] Einladung (${tenantName})`,
+            text:
+              `Hallo ${user.displayName || user.email},\n\n` +
+              `Sie wurden für den Tenant "${tenantName}" eingeladen.\n\n` +
+              `Login: ${loginUrl}\n` +
+              `Temporäres Passwort: ${tempPassword}\n\n` +
+              `Bitte melden Sie sich an und ändern Sie Ihr Passwort.\n`,
+            html:
+              `<p>Hallo ${user.displayName || user.email},</p>` +
+              `<p>Sie wurden für den Tenant <strong>${tenantName}</strong> eingeladen.</p>` +
+              `<p><strong>Login:</strong> <a href="${loginUrl}">${loginUrl}</a><br>` +
+              `<strong>Temporäres Passwort:</strong> <code>${tempPassword}</code></p>` +
+              `<p>Bitte melden Sie sich an und ändern Sie Ihr Passwort.</p>`,
+          };
+
+    console.log('[users:invite] → send', { tenant: tenantId || String(tenant), userId, to: user.email });
+    let status = 'sent';
+    try {
+      const resp = await mail.sendMail(payload);
+      console.log('[users:invite] ← mail result', { ok: !!resp?.ok, dryRun: !!resp?.dryRun });
+      status = resp?.ok ? 'sent' : (resp?.dryRun ? 'dryrun' : 'failed');
+    } catch (e) {
+      console.error('[users:invite] send FAIL:', e.message);
+      status = 'failed';
     }
 
-    await user.save();
-    return res.json({ user: sanitizeUser(user) });
-  } catch (e) { next(e); }
-});
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { lastInviteEmailAt: new Date(), lastInviteEmailStatus: status } }
+    );
 
-/**
- * PUT /api/tenant/:tenantId/users/:userId/memberships
- * Body: { memberships: [{ groupId, roles: [String] }, ...] }
- */
-router.put('/:userId/memberships', async (req, res, next) => {
-  try {
-    const tenant = req.tenant;
-    const { userId } = req.params;
-    if (!mongoose.isValidObjectId(userId)) return res.status(400).json({ error: 'Invalid userId' });
-
-    const user = await User.findOne({ _id: userId, tenant });
-    if (!user) return res.status(404).json({ error: 'User not found in tenant' });
-
-    const { memberships } = req.body || {};
-    if (!Array.isArray(memberships)) return res.status(400).json({ error: 'memberships must be array' });
-
-    const cleaned = await sanitizeMemberships(tenant, memberships);
-    user.memberships = cleaned;
-    await user.save();
-
-    return res.json({ user: sanitizeUser(user) });
+    return res.json({
+      ok: status === 'sent' || status === 'dryrun',
+      invitedAt: user.invitedAt,
+      lastInviteEmailAt: new Date(),
+      lastInviteEmailStatus: status,
+      message: status === 'sent'
+        ? 'Einladung gesendet.'
+        : status === 'dryrun'
+          ? 'MAIL_ENABLED=false (DRY-RUN) – Einladung nicht wirklich gesendet.'
+          : 'Versand fehlgeschlagen.',
+    });
   } catch (e) { next(e); }
 });
 

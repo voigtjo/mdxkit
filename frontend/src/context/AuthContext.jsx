@@ -67,7 +67,22 @@ export default function AuthProvider({ children }) {
     scheduleAutoRefresh(nextAccess);
   };
 
-  const clearTokens = () => setTokens('', null);
+  const clearTokens = () => {
+    // Timer abbrechen
+    if (refreshTimer.current) {
+      clearTimeout(refreshTimer.current);
+      refreshTimer.current = null;
+    }
+    // Tokens & Tenant wegräumen
+    try {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('tenantId'); // wichtig, damit axios-baseURL nicht hängen bleibt
+    } catch {}
+    setAccess('');
+    setRefresh('');
+    scheduleAutoRefresh(''); // räumt sicher auf
+  };
 
   // Initial: /me versuchen, sonst 1x refresh
   useEffect(() => {
@@ -144,11 +159,19 @@ export default function AuthProvider({ children }) {
       setUser(user);
       return user;
     },
+
     async doLogout() {
-      try { if (access) await authApi.logout(access); } catch {}
-      setUser(null);
-      clearTokens();
-    },
+      try {
+        console.log('[Auth] logout start (hasAccess=', !!access, ')');
+        if (access) await authApi.logout(access);
+      } catch (e) {
+        console.warn('[Auth] logout API failed (ignored):', e?.message);
+      }
+        setUser(null);
+        clearTokens();
+        // harte Rückkehr, damit alles (inkl. axios baseURL) sauber neu initialisiert
+        window.location.href = '/';
+      },
   }), [user, access, refresh, loading]);
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
