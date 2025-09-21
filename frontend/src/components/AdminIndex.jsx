@@ -9,22 +9,27 @@ import usePerms, { PERMS as P } from '@/hooks/usePerms';
 
 function useActiveAdminTab() {
   const location = useLocation();
-  if (location.pathname.endsWith('/groups')) return 'groups';
-  if (location.pathname.endsWith('/users')) return 'users';
-  if (location.pathname.endsWith('/forms')) return 'forms';
-  if (location.pathname.endsWith('/admin')) return 'forms';
+  const p = location.pathname;
+  // Group-Scope (Forms)
+  if (/(\/tenant\/[^/]+\/group\/[^/]+)\/admin\/forms\/?$/i.test(p)) return 'forms';
+  if (/(\/tenant\/[^/]+\/group\/[^/]+)\/admin\/?$/i.test(p)) return 'forms';
+
+  // Tenant-Verwaltung (Users/Groups) – bewusst OHNE group in der URL
+  if (/\/tenant\/[^/]+\/admin\/users\/?$/i.test(p)) return 'users';
+  if (/\/tenant\/[^/]+\/admin\/groups\/?$/i.test(p)) return 'groups';
+
   return 'forms';
 }
 
 export default function AdminIndex() {
-  const { tenantId } = useParams();
+  const { tenantId, groupId } = useParams();
   const navigate = useNavigate();
   const active = useActiveAdminTab();
   const { can } = usePerms();
 
   const showForms = can(P.FORM_CREATE) || can(P.FORM_PUBLISH);
-  const showUsers = true;
-  const showGroups = true;
+  const showUsers = true;   // Tenant-Admin-Bereich (keine Gruppe)
+  const showGroups = true;  // Tenant-Admin-Bereich (keine Gruppe)
 
   const available = [
     ...(showForms ? ['forms'] : []),
@@ -34,16 +39,17 @@ export default function AdminIndex() {
 
   const safeActive = available.includes(active) ? active : (available[0] || 'users');
 
+  // sichere Umleitung auf erste verfügbare Tab-Route
   useEffect(() => {
     if (safeActive !== active) {
-      if (safeActive === 'forms') navigate(`/tenant/${tenantId}/admin/forms`, { replace: true });
+      if (safeActive === 'forms') navigate(`/tenant/${tenantId}/group/${groupId}/admin/forms`, { replace: true });
       if (safeActive === 'users') navigate(`/tenant/${tenantId}/admin/users`, { replace: true });
       if (safeActive === 'groups') navigate(`/tenant/${tenantId}/admin/groups`, { replace: true });
     }
-  }, [safeActive, active, tenantId, navigate]);
+  }, [safeActive, active, tenantId, groupId, navigate]);
 
   const onChange = (_e, v) => {
-    if (v === 'forms') navigate(`/tenant/${tenantId}/admin/forms`);
+    if (v === 'forms') navigate(`/tenant/${tenantId}/group/${groupId}/admin/forms`);
     if (v === 'users') navigate(`/tenant/${tenantId}/admin/users`);
     if (v === 'groups') navigate(`/tenant/${tenantId}/admin/groups`);
   };
@@ -51,8 +57,9 @@ export default function AdminIndex() {
   const content = useMemo(() => {
     if (safeActive === 'users') return <AdminUsers key={`users-${tenantId}`} />;
     if (safeActive === 'groups') return <AdminGroups key={`groups-${tenantId}`} />;
-    return <AdminForms key={`forms-${tenantId}`} />;
-  }, [safeActive, tenantId]);
+    // forms im Group-Scope:
+    return <AdminForms key={`forms-${tenantId}-${groupId}`} />;
+  }, [safeActive, tenantId, groupId]);
 
   return (
     <Box sx={{ p: 3 }}>

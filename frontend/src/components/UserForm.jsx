@@ -1,4 +1,3 @@
-// src/components/UserForm.jsx
 import React, { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import html2canvas from "html2canvas";
@@ -14,8 +13,8 @@ import {
 } from "@mui/material";
 
 import {
-  getFormForPatient,   // PROD: lädt Formular für userId
-  getFormForTest,      // TEST: lädt Formular mit Testdatensatz
+  getFormForPatient,
+  getFormForTest,
   submitForm,
   submitFormTest,
   saveFormData,
@@ -30,7 +29,7 @@ const UserForm = () => {
   const { isSysAdmin, isTenantAdmin, hasAnyRole } = useRoles();
   const canEditByRole = isSysAdmin || isTenantAdmin || hasAnyRole(['FormDataEditor','FormPublisher']);
 
-  const { formName, userId } = useParams(); // ⬅️ userId statt patientId
+  const { formName, userId } = useParams();
   const MODE = userId ? "PROD" : "TEST";
 
   const [formText, setFormText] = useState("");
@@ -82,7 +81,6 @@ const UserForm = () => {
     setValues((prev) => ({ ...prev, [name]: value }));
   };
 
-  // In PROD editierbar nur bei 'offen' oder 'gespeichert'. In TEST immer editierbar.
   const isEditableByStatus = MODE === "TEST" ? true : (status === "offen" || status === "gespeichert");
   const isEditable = canEditByRole && isEditableByStatus;
 
@@ -179,7 +177,6 @@ const UserForm = () => {
     }
   };
 
-  // PDF/Druck: erlauben bei Test-Mode ODER wenn freigegeben ODER wenn Bearbeitungsrecht
   const canOutput = MODE === 'TEST' || status === 'freigegeben' || canEditByRole;
 
   return (
@@ -227,7 +224,7 @@ const UserForm = () => {
         <Divider sx={{ mb: 3 }} />
 
         <Box ref={printRef}>
-          {parseForm(formText, values, handleChange, sigRef, !isEditable /* kein formatOptions mehr */)}
+          {parseForm(formText, values, handleChange, sigRef, !isEditable)}
         </Box>
       </Paper>
     </Box>

@@ -45,8 +45,7 @@ function sanitizeUser(u) {
     profile: u.profile || {},
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
-    tenant: u.tenant, // meist ObjectId
-    // Einladungs-/Onboarding-Felder:
+    tenant: u.tenant, // ObjectId
     invitedAt: u.invitedAt || null,
     mustChangePassword: !!u.mustChangePassword,
     lastInviteEmailAt: u.lastInviteEmailAt || null,
@@ -54,9 +53,9 @@ function sanitizeUser(u) {
   };
 }
 
+/** prüft memberships und Rollen gegen DB */
 async function sanitizeMemberships(tenantObjId, memberships) {
   if (!Array.isArray(memberships)) return [];
-  // gültige Groups im Tenant
   const groupIds = memberships.map(m => m?.groupId).filter(Boolean).map(String);
   const validGroups = await Group.find({
     _id: { $in: groupIds.map(toObjectId).filter(Boolean) },
@@ -65,13 +64,11 @@ async function sanitizeMemberships(tenantObjId, memberships) {
   }).select({ _id: 1 }).lean();
   const validGroupSet = new Set(validGroups.map(g => String(g._id)));
 
-  // gültige Rollen
   const allRoles = Array.from(new Set(memberships.flatMap(m => Array.isArray(m?.roles) ? m.roles : [])))
     .filter(k => typeof k === 'string' && k.trim() && !FORBIDDEN_ROLE_KEYS.has(k));
   const dbRoles = await Role.find({ key: { $in: allRoles }, status: { $ne: 'deleted' } }).select({ key: 1 }).lean();
   const validRoleSet = new Set(dbRoles.map(r => r.key));
 
-  // zusammensetzen
   const cleaned = [];
   for (const m of memberships) {
     const gid = String(m?.groupId || '');
@@ -82,13 +79,34 @@ async function sanitizeMemberships(tenantObjId, memberships) {
   return cleaned;
 }
 
+/** sorgt dafür, dass im Tenant eine Gruppe "Global" existiert */
+async function ensureGlobalGroup(tenantObjId) {
+  let g = await Group.findOne({
+    tenant: tenantObjId,
+    status: { $ne: 'deleted' },
+    $or: [{ key: 'global' }, { name: 'Global' }]
+  }).lean();
+
+  if (!g) {
+    const doc = new Group({
+      tenant: tenantObjId,
+      key: 'global',
+      name: 'Global',
+      description: 'Standardgruppe des Tenants',
+      status: 'active'
+    });
+    g = await doc.save();
+    // save() liefert ein Mongoose-Dokument; wir brauchen ._id in jedem Fall
+  }
+  return g._id ? g : await Group.findById(g._id).lean();
+}
+
 // LIST
 router.get('/', async (req, res, next) => {
   try {
     const tenant = req.tenant; // ObjectId
     const users = await User.find(
       { tenant, status: { $ne: 'deleted' } },
-      // ➕ Felder für Einladung/Resend anzeigen:
       'displayName email status defaultGroupId memberships isTenantAdmin invitedAt mustChangePassword lastInviteEmailAt lastInviteEmailStatus'
     ).lean();
 
@@ -128,7 +146,16 @@ router.post('/', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, res) =>
     }
     if (email && !isEmail(email)) return res.status(400).json({ error: 'E-Mail ist ungültig.' });
 
-    const cleanedMemberships = await sanitizeMemberships(tenant, memberships);
+    // Memberships bereinigen
+    let cleanedMemberships = await sanitizeMemberships(tenant, memberships);
+
+    // 🔸 Global-Gruppe sicherstellen + ggf. Mitgliedschaft hinzufügen
+    const global = await ensureGlobalGroup(tenant);
+    if (!cleanedMemberships || cleanedMemberships.length === 0) {
+      cleanedMemberships = [{ groupId: global._id || global, roles: [] }];
+    }
+
+    // defaultGroupId ermitteln/prüfen
     let defaultGid = null;
     if (defaultGroupId) {
       const oid = toObjectId(defaultGroupId);
@@ -136,6 +163,8 @@ router.post('/', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, res) =>
       const found = cleanedMemberships.some(m => String(m.groupId) === String(oid));
       if (!found) return res.status(400).json({ error: 'defaultGroupId muss in memberships enthalten sein' });
       defaultGid = oid;
+    } else {
+      defaultGid = cleanedMemberships[0]?.groupId || null;
     }
 
     const doc = new User({
@@ -187,6 +216,11 @@ router.put('/:id', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, res) 
     }
     if (typeof memberships !== 'undefined') {
       updates.memberships = await sanitizeMemberships(tenant, memberships);
+      // Wenn memberships nun leer wären, Global erzwingen:
+      if (!updates.memberships || updates.memberships.length === 0) {
+        const global = await ensureGlobalGroup(tenant);
+        updates.memberships = [{ groupId: global._id || global, roles: [] }];
+      }
     }
     if (typeof defaultGroupId !== 'undefined') {
       if (defaultGroupId === null) {
@@ -199,6 +233,10 @@ router.put('/:id', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, res) 
         if (!found) return res.status(400).json({ error: 'defaultGroupId muss in memberships enthalten sein' });
         updates.defaultGroupId = oid;
       }
+    } else if (typeof memberships !== 'undefined') {
+      // falls defaultGroupId nicht explizit gesetzt wurde: auf erste Membership setzen
+      const first = (updates.memberships && updates.memberships[0]?.groupId) || null;
+      if (first) updates.defaultGroupId = first;
     }
     if (typeof profile !== 'undefined') {
       if (profile && typeof profile !== 'object') return res.status(400).json({ error: 'profile muss Objekt sein' });
@@ -243,13 +281,7 @@ router.delete('/:id', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, re
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-/**
- * ✅ INVITE / RESEND
- * POST /api/tenant/:tenantId/users/:userId/invite
- * – setzt Temp-Passwort + mustChangePassword=true
- * – versendet Einladungsmail
- * – schreibt invitedAt / lastInviteEmailAt / lastInviteEmailStatus
- */
+// INVITE / RESEND (unverändert)
 router.post('/:userId/invite', requireRoles('TenantAdmin', 'SystemAdmin'), async (req, res, next) => {
   try {
     const tenant = req.tenant;
@@ -264,7 +296,6 @@ router.post('/:userId/invite', requireRoles('TenantAdmin', 'SystemAdmin'), async
     const tenantName = t?.name || t?.tenantId || 'Tenant';
     const tenantId   = t?.tenantId || '';
 
-    // Temp-Passwort setzen + mustChangePassword
     const tempPassword = randomPwd(14);
     if (typeof user.setPassword === 'function') {
       await user.setPassword(tempPassword);
@@ -276,7 +307,6 @@ router.post('/:userId/invite', requireRoles('TenantAdmin', 'SystemAdmin'), async
     if (!user.invitedAt) user.invitedAt = new Date();
     await user.save();
 
-    // Mail aufbauen
     const loginUrl = process.env.APP_PUBLIC_URL || process.env.APP_BASE_URL || 'http://localhost:5173';
     const payload =
       typeof mail.inviteTenantUserEmail === 'function'

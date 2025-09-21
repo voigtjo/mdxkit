@@ -1,4 +1,3 @@
-// src/components/ManageForms.jsx
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -7,7 +6,7 @@ import {
   Table, TableHead, TableRow, TableCell, TableBody,
   Paper, Divider,
 } from '@mui/material';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import SendIcon from '@mui/icons-material/Send';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -20,15 +19,20 @@ import {
   getAllFormData, reopenForm, acceptForm,
 } from '@/api/manageApi';
 import { useTenant } from '@/context/TenantContext';
-import { getUsers } from '@/api/userApi';
 import usePerms, { PERMS as P } from '@/hooks/usePerms';
+
+const isProd = import.meta?.env?.MODE === 'production' || process.env.NODE_ENV === 'production';
+const dlog = (...a) => { if (!isProd) console.debug('[ManageForms]', ...a); };
 
 const ManageForms = () => {
   const { loading: authLoading, user } = useAuth();
-  const { tenantId } = useTenant();
+  const { tenantId: ctxTid } = useTenant();
+  const { tenantId: urlTid, groupId } = useParams();
+
+  const tenantId = urlTid || ctxTid || user?.tenantId || user?.tenant?.tenantId || '';
 
   const { can } = usePerms();
-  const canEdit = can(P.FORMDATA_EDIT);
+  const canEdit = can(P.FORMDATA_EDIT) || user?.isSystemAdmin || user?.isTenantAdmin;
 
   const [forms, setForms] = useState([]);
   const [users, setUsers] = useState([]);
@@ -39,6 +43,7 @@ const ManageForms = () => {
   const [message, setMessage] = useState('');
 
   useEffect(() => {
+    // Reset bei Tenant-/Gruppenwechsel
     setForms([]);
     setUsers([]);
     setSelectedForm('');
@@ -46,7 +51,7 @@ const ManageForms = () => {
     setEntries([]);
     setFormDataList([]);
     setMessage('');
-  }, [tenantId]);
+  }, [tenantId, groupId]);
 
   useEffect(() => {
     if (authLoading || !user || !tenantId) return;
@@ -54,18 +59,20 @@ const ManageForms = () => {
       try {
         const [f, u, d] = await Promise.all([
           getAvailableForms(),
-          getUsers(),
+          // getUsers() lädt bereits tenant-gebunden
+          (await import('@/api/userApi')).getUsers(),
           getAllFormData(),
         ]);
         setForms(f || []);
         setUsers(u || []);
         setFormDataList(d || []);
+        dlog('init ok', { forms: f?.length, users: u?.length, data: d?.length, tenantId, groupId });
       } catch (e) {
         console.error('❌ Initial-Load (ManageForms) fehlgeschlagen:', e);
       }
     };
     init();
-  }, [authLoading, user, tenantId]);
+  }, [authLoading, user, tenantId, groupId]);
 
   const loadEntries = async (formName) => {
     if (!formName) return;
@@ -129,18 +136,22 @@ const ManageForms = () => {
     return <Box sx={{ p: 4 }}><Alert severity="info">Lade…</Alert></Box>;
   }
 
-  return !canEdit ? (
-    <Box sx={{ p: 4 }}>
-      <Alert severity="warning">Keine Berechtigung für diesen Bereich.</Alert>
-    </Box>
-  ) : (
+  if (!canEdit) {
+    return (
+      <Box sx={{ p: 4 }}>
+        <Alert severity="warning">Keine Berechtigung für diesen Bereich.</Alert>
+      </Box>
+    );
+  }
+
+  return (
     <Box
       sx={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', pt: 6, px: 4 }}
     >
       <Box sx={{ width: '100%', maxWidth: 1200 }}>
         <Button
           component={Link}
-          to={tenantId ? `/tenant/${encodeURIComponent(tenantId)}` : '/'}
+          to={tenantId && groupId ? `/tenant/${encodeURIComponent(tenantId)}/group/${encodeURIComponent(groupId)}` : '/'}
           variant="outlined"
           startIcon={<ArrowBackIcon />}
           sx={{ mb: 2 }}
@@ -229,7 +240,7 @@ const ManageForms = () => {
                     <Tooltip title="Formular öffnen">
                       <Button
                         component={Link}
-                        to={`/tenant/${tenantId}/formular/${e.formName}/${e.userId}`}
+                        to={`/tenant/${encodeURIComponent(tenantId)}/group/${encodeURIComponent(groupId)}/formular/${encodeURIComponent(e.formName)}/${encodeURIComponent(e.userId)}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         variant="outlined"

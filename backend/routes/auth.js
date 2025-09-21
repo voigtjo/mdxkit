@@ -1,9 +1,11 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
-const User = require('../models/user');
-const Tenant = require('../models/tenant');
 
+const User   = require('../models/user');
+const Tenant = require('../models/tenant');
+const Group  = require('../models/group');             // ⬅️ Gruppenmodell
+const toUserDTO = require('../dto/toUserDTO');         // ⬅️ DTO-Mapper
 
 const {
   authRequired,
@@ -24,11 +26,7 @@ async function findActiveTenantByPublicOrKey(idOrKey) {
   });
 }
 
-/**
- * POST /api/auth/register
- * Body: { tenantId, displayName, email, password }
- * - tenantId: Public-ID (ten_...) ODER key (z.B. "dev")
- */
+/* ---------------- Register ---------------- */
 router.post('/register', async (req, res, next) => {
   try {
     const { tenantId, displayName, email, password } = req.body || {};
@@ -39,14 +37,15 @@ router.post('/register', async (req, res, next) => {
     const tenant = await findActiveTenantByPublicOrKey(tenantId);
     if (!tenant) return res.status(400).json({ error: 'Unknown or inactive tenant' });
 
-    const existing = await User.findOne({ tenant: tenant._id, email: String(email).toLowerCase().trim() });
+    const emailLc = String(email).toLowerCase().trim();
+    const existing = await User.findOne({ tenant: tenant._id, email: emailLc });
     const hash = await bcrypt.hash(password, 12);
 
     if (!existing) {
       const user = await User.create({
         tenant: tenant._id,
         displayName: String(displayName).trim(),
-        email: String(email).toLowerCase().trim(),
+        email: emailLc,
         status: 'active',
         isSystemAdmin: false,
         isTenantAdmin: false,
@@ -67,24 +66,16 @@ router.post('/register', async (req, res, next) => {
     }
 
     return res.status(409).json({ error: 'User already registered' });
-  } catch (e) {
-    next(e);
-  }
+  } catch (e) { next(e); }
 });
 
-/**
- * POST /api/auth/login
- * Body: { email, password, tenantId? }  // tenantId optional; nötig, wenn Email mehrfach existiert
- */
-// routes/auth.js  (nur den /login-Handler ersetzen)
+/* ---------------- Login ---------------- */
 router.post('/login', async (req, res, next) => {
   try {
     const { email, password, tenantId } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: 'Missing fields' });
 
     const emailLc = String(email).toLowerCase().trim();
-
-    // Alle Kandidaten mit dieser E-Mail holen
     const candidates = await User.find({ email: emailLc }).limit(50);
     if (!candidates || candidates.length === 0) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -92,80 +83,102 @@ router.post('/login', async (req, res, next) => {
 
     let chosen = null;
 
-    // 1) Wenn tenantId mitkommt: dort bevorzugt suchen
+    // 1) Tenant-Präferenz (wenn angegeben)
     if (tenantId) {
-      const tenant = await findActiveTenantByPublicOrKey(tenantId);
-      if (!tenant) return res.status(400).json({ error: 'Unknown or inactive tenant' });
-      chosen = candidates.find(u => String(u.tenant) === String(tenant._id)) || null;
+      const t = await findActiveTenantByPublicOrKey(tenantId);
+      if (!t) return res.status(400).json({ error: 'Unknown or inactive tenant' });
+      chosen = candidates.find(u => String(u.tenant) === String(t._id)) || null;
     }
 
-    // 2) Fallbacks, wenn nichts gefunden
+    // 2) Eindeutiger Treffer oder eindeutiger SysAdmin
     if (!chosen) {
       if (candidates.length === 1) {
         chosen = candidates[0];
       } else {
         const sysAdmins = candidates.filter(u => !!u.isSystemAdmin);
-        if (sysAdmins.length === 1) {
-          chosen = sysAdmins[0]; // Eindeutiger SysAdmin -> nehmen
-        }
+        if (sysAdmins.length === 1) chosen = sysAdmins[0];
       }
     }
 
-    // 3) Wenn weiterhin unklar, bewusst stoppen (wie bisher)
     if (!chosen) {
       return res.status(400).json({ error: 'Email exists in multiple tenants, please pass tenantId.' });
     }
 
     if (chosen.status !== 'active') return res.status(403).json({ error: 'User not active' });
-    if (!chosen.passwordHash) return res.status(401).json({ error: 'Password not set' });
+    if (!chosen.passwordHash)     return res.status(401).json({ error: 'Password not set' });
 
     const ok = await bcrypt.compare(password, chosen.passwordHash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
 
+    // Für DTO: User mit Tenant-Infos + Gruppen des Tenants laden
+    const populated = await User.findById(chosen._id)
+      .populate({ path: 'tenant', select: 'tenantId name' })
+      .lean();
+
+    const groups = await Group.find({
+      tenant: populated.tenant?._id || populated.tenant,
+      status: { $ne: 'deleted' },
+    }).select('_id groupId key name status').lean();
+
     const tokens = issueTokens(chosen);
-    return res.json({ user: sanitizeUser(chosen), ...tokens });
-  } catch (e) {
-    next(e);
-  }
+    const dto    = toUserDTO(populated, { groups });
+
+    // Konsistent zum FE: user-Objekt direkt (nicht unter {user: …})
+    return res.json({ ...tokens, user: dto });
+  } catch (e) { next(e); }
 });
 
-
-/**
- * POST /api/auth/refresh
- * Body: { refreshToken, rotate? }
- */
+/* ---------------- Refresh ---------------- */
 router.post('/refresh', async (req, res, next) => {
   try {
     const { refreshToken, rotate } = req.body || {};
     if (!refreshToken) return res.status(400).json({ error: 'Missing refreshToken' });
+
     const { user, tokens } = await rotateRefreshToken(refreshToken, { rotate: !!rotate });
-    return res.json({ user: sanitizeUser(user), ...tokens });
+
+    const populated = await User.findById(user._id)
+      .populate({ path: 'tenant', select: 'tenantId name' })
+      .lean();
+
+    const groups = await Group.find({
+      tenant: populated.tenant?._id || populated.tenant,
+      status: { $ne: 'deleted' },
+    }).select('_id groupId key name status').lean();
+
+    const dto = toUserDTO(populated, { groups });
+    return res.json({ ...tokens, user: dto });
   } catch (e) { next(e); }
 });
 
-/**
- * POST /api/auth/logout
- * Header: Authorization: Bearer <access>
- */
+/* ---------------- Logout ---------------- */
 router.post('/logout', authRequiredStrict, async (req, res, next) => {
   try {
     await invalidateRefreshTokens(req.user._id);
-    return res.json({ ok: true });
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
-/**
- * GET /api/auth/me
- */
-router.get('/me', authRequiredStrict, async (req, res) => {
-  return res.json({ user: sanitizeUser(req.user) });
+/* ---------------- Me ---------------- */
+router.get('/me', authRequiredStrict, async (req, res, next) => {
+  try {
+    const populated = await User.findById(req.user._id)
+      .populate({ path: 'tenant', select: 'tenantId name' })
+      .lean();
+    if (!populated) return res.status(404).json({ error: 'not found' });
+
+    const groups = await Group.find({
+      tenant: populated.tenant?._id || populated.tenant,
+      status: { $ne: 'deleted' },
+    }).select('_id groupId key name status').lean();
+
+    const dto = toUserDTO(populated, { groups });
+
+    // Für dein FE: direkt den User-DTO zurückgeben (kein {user:…} Wrapper)
+    res.json(dto);
+  } catch (e) { next(e); }
 });
 
-/**
- * POST /api/auth/change-password
- * Body: { currentPassword, newPassword }
- * – setzt mustChangePassword=false
- */
+/* ---------------- Change Password ---------------- */
 router.post('/change-password', authRequired, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body || {};
@@ -176,20 +189,13 @@ router.post('/change-password', authRequired, async (req, res) => {
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ error: 'User nicht gefunden' });
 
-    // Wenn du eine Methode hast:
-    const verify = typeof user.verifyPassword === 'function'
-      ? await user.verifyPassword(currentPassword)
-      : (user.passwordHash ? await bcrypt.compare(currentPassword || '', user.passwordHash) : false);
+    const ok = user.passwordHash
+      ? await bcrypt.compare(currentPassword || '', user.passwordHash)
+      : false;
+    if (!ok) return res.status(401).json({ error: 'Aktuelles Passwort falsch' });
 
-    // Bei „mustChangePassword“ kannst du den Current-Check weicher machen – ich lasse ihn an.
-    if (!verify) return res.status(401).json({ error: 'Aktuelles Passwort falsch' });
-
-    if (typeof user.setPassword === 'function') {
-      await user.setPassword(newPassword);
-    } else {
-      const salt = await bcrypt.genSalt(10);
-      user.passwordHash = await bcrypt.hash(newPassword, salt);
-    }
+    const salt = await bcrypt.genSalt(10);
+    user.passwordHash = await bcrypt.hash(newPassword, salt);
     user.mustChangePassword = false;
     await user.save();
 

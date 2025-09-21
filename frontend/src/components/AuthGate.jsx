@@ -1,63 +1,82 @@
 // src/components/AuthGate.jsx
-import React, { useEffect, useMemo } from 'react';
-import { CircularProgress, Box } from '@mui/material';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import LoginRegister from './LoginRegister';
+import React from 'react';
+import {
+  Box, Paper, TextField, Button, Stack,
+  Typography, CircularProgress, Alert
+} from '@mui/material';
+import { useAuth } from '@/context/AuthContext';
 
+/**
+ * Gate, das:
+ * - beim ersten Laden kurz einen Spinner zeigt (Hydration)
+ * - OHNE /login-Route direkt ein Login-Formular auf "/" rendert
+ * - nach erfolgreichem Login einfach {children} rendert
+ */
 export default function AuthGate({ children }) {
-  const { user, loading } = useAuth();
-  const location = useLocation();
-  const navigate = useNavigate();
+  const { user, loading, doLogin } = useAuth();
 
-  // Beide Varianten zulassen (mit/ohne "change-"):
-  // - /account/password
-  // - /account/change-password
-  // (sowie tenant-geprefixt, falls später gebraucht)
-  const isChangePwRoute = useMemo(() => {
-    const p = location.pathname;
-    return (
-      p === '/account/password' ||
-      p === '/account/change-password' ||
-      /^\/tenant\/[^/]+\/account\/password$/.test(p) ||
-      /^\/tenant\/[^/]+\/account\/change-password$/.test(p)
-    );
-  }, [location.pathname]);
+  const [email, setEmail] = React.useState('');
+  const [password, setPassword] = React.useState('');
+  const [submitting, setSubmitting] = React.useState(false);
+  const [error, setError] = React.useState('');
 
-  // Flag robust lesen: mustChangePassword ODER forcePasswordChange
-  const mustChangePassword = !!(user?.mustChangePassword || user?.forcePasswordChange);
-
-  // Wenn eingeloggt & PW-Wechsel nötig & wir sind NICHT auf der PW-Seite → redirecten
-  useEffect(() => {
-    if (loading) return;
-    if (!user) return;
-    if (mustChangePassword && !isChangePwRoute) {
-      navigate('/account/password', {
-        replace: true,
-        state: { from: location.pathname + location.search },
-      });
-    }
-  }, [loading, user, mustChangePassword, isChangePwRoute, navigate, location.pathname, location.search]);
-
-  // Ladezustand
+  // Initial: Hydration läuft → Spinner
   if (loading) {
     return (
-      <Box sx={{ display: 'grid', placeItems: 'center', height: '60vh' }}>
+      <Box sx={{ p: 4, display: 'flex', justifyContent: 'center' }}>
         <CircularProgress />
       </Box>
     );
   }
 
-  // Nicht eingeloggt → Login/Register anzeigen
-  if (!user) return <LoginRegister />;
+  // Eingeloggt → App zeigen
+  if (user) return children;
 
-  // Eingeloggt, PW-Wechsel erforderlich:
-  // - auf PW-Seite: Kind rendern (z. B. <AccountPassword />)
-  // - sonst: der useEffect übernimmt das Redirect; hier kurz nichts rendern
-  if (mustChangePassword && !isChangePwRoute) {
-    return null;
-  }
+  // Nicht eingeloggt → Login direkt hier anzeigen (keine /login-Route nötig)
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSubmitting(true);
+    try {
+      await doLogin(email.trim(), password);
+      // Nach erfolgreichem Login rendert dieses Gate automatisch children.
+    } catch (err) {
+      setError(err?.message || 'Anmeldung fehlgeschlagen');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
-  // Alles gut → regulär rendern
-  return children;
+  return (
+    <Box sx={{ p: 4, display: 'flex', justifyContent: 'center' }}>
+      <Paper sx={{ p: 3, width: 380 }}>
+        <Typography variant="h6" gutterBottom>Anmeldung</Typography>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        <form onSubmit={onSubmit}>
+          <Stack spacing={2}>
+            <TextField
+              label="E-Mail"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoFocus
+              fullWidth
+              required
+            />
+            <TextField
+              label="Passwort"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              fullWidth
+              required
+            />
+            <Button variant="contained" type="submit" disabled={submitting}>
+              {submitting ? 'Anmelden…' : 'Anmelden'}
+            </Button>
+          </Stack>
+        </form>
+      </Paper>
+    </Box>
+  );
 }

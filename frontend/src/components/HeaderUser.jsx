@@ -1,82 +1,59 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Chip, Stack, Typography, FormControl, Select, MenuItem, InputLabel } from '@mui/material';
+// src/components/HeaderUser.jsx
+import React, { useMemo } from 'react';
+import { Button, Chip, Stack, Typography } from '@mui/material';
 import { useAuth } from '@/context/AuthContext';
 import { useTenant } from '@/context/TenantContext';
-import { listGroups } from '@/api/groupApi';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 export default function HeaderUser() {
   const { user, doLogout } = useAuth();
-  const { tenantId, groupId, setGroupId, userMemberships } = useTenant();
-
-  const [groupNames, setGroupNames] = useState({}); // id -> name
-
-  useEffect(() => {
-    let alive = true;
-    async function load() {
-      if (!tenantId) { setGroupNames({}); return; }
-      try {
-        const list = await listGroups(tenantId); // [{_id,name}, ...]
-        if (!alive) return;
-        const map = {};
-        (list || []).forEach(g => { map[String(g._id)] = g.name || String(g._id); });
-        setGroupNames(map);
-      } catch {
-        if (alive) setGroupNames({});
-      }
-    }
-    load();
-    return () => { alive = false; };
-  }, [tenantId]);
-
-  const membershipOptions = useMemo(() => {
-    const ids = (userMemberships || []).map(m => m.groupId);
-    return ids.map(id => ({ value: id, label: groupNames[id] || id }));
-  }, [userMemberships, groupNames]);
+  const { tenantId: ctxTid } = useTenant();
+  const nav = useNavigate();
+  const loc = useLocation();
 
   if (!user) return null;
 
-  const handleLogout = async () => {
-    try {
-      await doLogout();
-    } catch {
-      try {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('tenantId');
-      } catch {}
-      window.location.href = '/';
-    }
-  };
+  // ---- TenantId robust ermitteln (Backend -> Context -> URL) ----
+  const tid = useMemo(() => {
+    const fromUser = user?.tenant?.tenantId || user?.tenantId || '';
+    if (fromUser) return fromUser;
+    if (ctxTid) return ctxTid;
+    const m = (loc.pathname || '').match(/^\/tenant\/([^/]+)/);
+    return m?.[1] || '';
+  }, [user, ctxTid, loc.pathname]);
 
-  const tenantLabel = user?.tenantName || user?.tenantId || tenantId;
+  // ---- Rolle bestimmen ----
+  const role = user.isSystemAdmin ? 'SysAdmin' : (user.isTenantAdmin ? 'TenantAdmin' : 'User');
+  const roleChipColor = user.isSystemAdmin ? 'secondary' : (user.isTenantAdmin ? 'primary' : 'default');
+
+  // ---- „Zum Tenant“-Button nur zeigen, wenn sinnvoll ----
+  const alreadyOnTenant = tid && new RegExp(`^/tenant/${tid}(/|$)`).test(loc.pathname || '');
+  const canJumpToTenant = !user.isSystemAdmin && !!tid && !alreadyOnTenant;
+
+  const goTenant = () => nav(`/tenant/${encodeURIComponent(tid)}`);
+
+  // Debug (einmal pro Render sichtbar)
+  try {
+    // eslint-disable-next-line no-console
+    console.debug('[HeaderUser] user:', {
+      email: user?.email,
+      tenantId: tid,
+      role,
+      path: loc.pathname
+    });
+  } catch {}
 
   return (
-    <Stack direction="row" spacing={1} alignItems="center">
-      {/* Tenant */}
-      {tenantLabel && (
-        <Chip size="small" variant="outlined" label={`Tenant: ${tenantLabel}`} />
-      )}
+    <Stack direction="row" spacing={1} alignItems="center" sx={{ px: 1, py: 1 }}>
+      {user.email && <Typography variant="body2">{user.email}</Typography>}
+      <Chip size="small" variant="outlined" label={`Tenant: ${tid || '–'}`} />
+      <Chip size="small" color={roleChipColor} label={`Role: ${role}`} />
 
-      {/* Gruppe (nur wenn der Nutzer Gruppen hat) */}
-      {membershipOptions.length > 0 && (
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel id="group-switcher-label">Gruppe</InputLabel>
-          <Select
-            labelId="group-switcher-label"
-            label="Gruppe"
-            value={groupId || ''}
-            onChange={(e) => setGroupId(e.target.value || null)}
-          >
-            {membershipOptions.map(opt => (
-              <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+      {canJumpToTenant && (
+        <Button size="small" variant="outlined" onClick={goTenant}>
+          Zum Tenant
+        </Button>
       )}
-
-      <Typography variant="body2">{user.email}</Typography>
-      {user.isSystemAdmin && <Chip size="small" color="secondary" label="SysAdmin" />}
-      {user.isTenantAdmin && <Chip size="small" color="primary" label="TenantAdmin" />}
 
       <Button
         size="small"
@@ -85,13 +62,7 @@ export default function HeaderUser() {
       >
         Passwort ändern
       </Button>
-
-      <Button
-        size="small"
-        variant="contained"
-        color="secondary"
-        onClick={handleLogout}
-      >
+      <Button size="small" variant="contained" color="secondary" onClick={doLogout}>
         Abmelden
       </Button>
     </Stack>
