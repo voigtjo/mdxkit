@@ -19,23 +19,34 @@ export default function Home() {
 
   const isTenantAdmin = !!user?.isTenantAdmin;
 
-  // ---- NEU: Gruppen aus dem DTO (user.groups)
+  // ---- Gruppen aus dem DTO ----
   const groups = useMemo(
     () => (Array.isArray(user?.groups) ? user.groups : []),
     [user]
   );
 
-  // Auswahl-State: initial erste Gruppe (falls vorhanden)
-  const [groupId, setGroupId] = useState(groups[0]?.groupId || '');
+  // Default: bevorzugt Default-Gruppe (user.defaultGroupId -> matching _id in groups),
+  // sonst erste Gruppe.
+  const computeInitialGroupId = () => {
+    const defId = user?.defaultGroupId ? String(user.defaultGroupId) : null;
+    if (defId) {
+      const hit = groups.find(g => String(g._id) === defId);
+      if (hit) return hit.groupId; // Public-ID
+    }
+    return groups[0]?.groupId || '';
+  };
 
-  // Nachziehen, sobald Gruppen aus DTO kommen / sich ändern
+  const [groupId, setGroupId] = useState(computeInitialGroupId());
+
   useEffect(() => {
-    if (!groupId && groups.length) setGroupId(groups[0].groupId);
-  }, [groups, groupId]);
+    // Falls Gruppen erst asynchron kommen, nachziehen
+    const wanted = computeInitialGroupId();
+    if (wanted && groupId !== wanted) setGroupId(wanted);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, user?.defaultGroupId]);
 
   return (
     <Box sx={{ p: 3 }}>
-      {/* Hinweis, falls (noch) kein Tenant im Pfad ist */}
       {!urlTid && !!tid && (
         <Alert severity="info" sx={{ mb: 2 }}>
           Du bist noch nicht im Mandantenbereich. Du kannst ihn hier öffnen:&nbsp;

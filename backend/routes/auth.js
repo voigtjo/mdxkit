@@ -1,11 +1,12 @@
+// backend/routes/auth.js
 const express = require('express');
-const bcrypt = require('bcryptjs');
+const bcrypt  = require('bcryptjs');
 const mongoose = require('mongoose');
 
-const User   = require('../models/user');
-const Tenant = require('../models/tenant');
-const Group  = require('../models/group');             // ⬅️ Gruppenmodell
-const toUserDTO = require('../dto/toUserDTO');         // ⬅️ DTO-Mapper
+const User    = require('../models/user');
+const Tenant  = require('../models/tenant');
+const Group   = require('../models/group');      // ⬅️ Gruppenmodell
+const toUserDTO = require('../dto/toUserDTO');   // ⬅️ DTO-Mapper
 
 const {
   authRequired,
@@ -18,6 +19,7 @@ const {
 
 const router = express.Router();
 
+/* ---------------- helpers ---------------- */
 async function findActiveTenantByPublicOrKey(idOrKey) {
   if (!idOrKey) return null;
   return Tenant.findOne({
@@ -26,7 +28,7 @@ async function findActiveTenantByPublicOrKey(idOrKey) {
   });
 }
 
-/* ---------------- Register ---------------- */
+/* ---------------- register ---------------- */
 router.post('/register', async (req, res, next) => {
   try {
     const { tenantId, displayName, email, password } = req.body || {};
@@ -69,7 +71,7 @@ router.post('/register', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/* ---------------- Login ---------------- */
+/* ---------------- login ---------------- */
 router.post('/login', async (req, res, next) => {
   try {
     const { email, password, tenantId } = req.body || {};
@@ -83,14 +85,14 @@ router.post('/login', async (req, res, next) => {
 
     let chosen = null;
 
-    // 1) Tenant-Präferenz (wenn angegeben)
+    // a) Tenant-Präferenz (wenn angegeben)
     if (tenantId) {
       const t = await findActiveTenantByPublicOrKey(tenantId);
       if (!t) return res.status(400).json({ error: 'Unknown or inactive tenant' });
       chosen = candidates.find(u => String(u.tenant) === String(t._id)) || null;
     }
 
-    // 2) Eindeutiger Treffer oder eindeutiger SysAdmin
+    // b) Eindeutiger Treffer oder eindeutiger SysAdmin
     if (!chosen) {
       if (candidates.length === 1) {
         chosen = candidates[0];
@@ -110,7 +112,7 @@ router.post('/login', async (req, res, next) => {
     const ok = await bcrypt.compare(password, chosen.passwordHash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
 
-    // Für DTO: User mit Tenant-Infos + Gruppen des Tenants laden
+    // Für DTO: User (mit Tenant) + Gruppen des Tenants laden
     const populated = await User.findById(chosen._id)
       .populate({ path: 'tenant', select: 'tenantId name' })
       .lean();
@@ -123,12 +125,11 @@ router.post('/login', async (req, res, next) => {
     const tokens = issueTokens(chosen);
     const dto    = toUserDTO(populated, { groups });
 
-    // Konsistent zum FE: user-Objekt direkt (nicht unter {user: …})
     return res.json({ ...tokens, user: dto });
   } catch (e) { next(e); }
 });
 
-/* ---------------- Refresh ---------------- */
+/* ---------------- refresh ---------------- */
 router.post('/refresh', async (req, res, next) => {
   try {
     const { refreshToken, rotate } = req.body || {};
@@ -150,7 +151,7 @@ router.post('/refresh', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/* ---------------- Logout ---------------- */
+/* ---------------- logout ---------------- */
 router.post('/logout', authRequiredStrict, async (req, res, next) => {
   try {
     await invalidateRefreshTokens(req.user._id);
@@ -158,7 +159,7 @@ router.post('/logout', authRequiredStrict, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/* ---------------- Me ---------------- */
+/* ---------------- me ---------------- */
 router.get('/me', authRequiredStrict, async (req, res, next) => {
   try {
     const populated = await User.findById(req.user._id)
@@ -173,12 +174,12 @@ router.get('/me', authRequiredStrict, async (req, res, next) => {
 
     const dto = toUserDTO(populated, { groups });
 
-    // Für dein FE: direkt den User-DTO zurückgeben (kein {user:…} Wrapper)
+    // Frontend erwartet den DTO direkt (kein { user: … }-Wrapper)
     res.json(dto);
   } catch (e) { next(e); }
 });
 
-/* ---------------- Change Password ---------------- */
+/* ---------------- change-password ---------------- */
 router.post('/change-password', authRequired, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body || {};

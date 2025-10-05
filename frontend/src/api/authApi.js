@@ -48,7 +48,7 @@ export function register(payload) {
   }).then(okJson);
 }
 
-// ⚠️ Signatur: login(email, password)
+// ⛔ Signatur bleibt: login(email, password)
 export function login(email, password) {
   return fetch(`${base}/login`, {
     method: 'POST',
@@ -57,27 +57,57 @@ export function login(email, password) {
   })
     .then(okJson)
     .then((data) => {
-      // API-Layer: präzises Logging (inkl. Gruppen)
+      // ---- DETAIL-LOG (collapsed) -----------------------------------------
       try {
         const u = data?.user || null;
+        console.groupCollapsed('[API] login → payload');
+        console.log('raw:', data);
+
         if (u) {
-          console.log('[API] login → user', {
+          const groups = Array.isArray(u.groups) ? u.groups : [];
+          const memberships = Array.isArray(u.memberships) ? u.memberships : [];
+
+          // hübsche Vorschauliste der Gruppen
+          const groupsPreview = groups.map(g => ({
+            groupId: g.groupId,
+            _id: String(g._id || ''),      // ObjectId
+            key: g.key || null,
+            name: g.name || null,
+            status: g.status || null,
+          }));
+
+          // memberships inklusive Rollen
+          const membershipsPreview = memberships.map(m => ({
+            groupObjectId: String(m.groupId || ''),     // ObjectId in der DB
+            groupPublicId: m.groupPublicId || null,     // wenn vom Backend gesetzt
+            roles: Array.isArray(m.roles) ? m.roles : [],
+          }));
+
+          console.log('user:', {
             id: u?._id || u?.id || null,
             email: u?.email || '',
             tenantId: u?.tenant?.tenantId || u?.tenantId || null,
             isSystemAdmin: !!u?.isSystemAdmin,
             isTenantAdmin: !!u?.isTenantAdmin,
-            membershipsCount: Array.isArray(u?.memberships) ? u.memberships.length : 0,
-            groupsCount: Array.isArray(u?.groups) ? u.groups.length : 0,
-            groupsPreview: Array.isArray(u?.groups) ? u.groups.slice(0, 5) : [],
+            groupsCount: groups.length,
+            groupsPreview,
+            membershipsCount: memberships.length,
+            membershipsPreview,
           });
+
+          // optional zum schnellen Inspizieren im DevTools-Global-Scope
+          window.__DBG_USER = u;
         } else {
-          console.log('[API] login → ok (ohne user payload)');
+          console.log('user: <missing>');
         }
+        console.groupEnd();
       } catch {}
+      // ---------------------------------------------------------------------
+
       return data;
     });
 }
+
 
 export function refresh(refreshToken, rotate = false) {
   return fetch(`${base}/refresh`, {
@@ -105,21 +135,46 @@ export function meStored() {
   return fetch(`${base}/me`, { headers })
     .then(okJson)
     .then((u) => {
+      // ---- DETAIL-LOG (collapsed) -----------------------------------------
       try {
-        console.log('[API] me()', {
+        const groups = Array.isArray(u?.groups) ? u.groups : [];
+        const memberships = Array.isArray(u?.memberships) ? u.memberships : [];
+
+        const groupsPreview = groups.map(g => ({
+          groupId: g.groupId,
+          _id: String(g._id || ''),
+          key: g.key || null,
+          name: g.name || null,
+          status: g.status || null,
+        }));
+
+        const membershipsPreview = memberships.map(m => ({
+          groupObjectId: String(m.groupId || ''),
+          groupPublicId: m.groupPublicId || null,
+          roles: Array.isArray(m.roles) ? m.roles : [],
+        }));
+
+        console.groupCollapsed('[API] me()');
+        console.log('user:', {
           id: u?._id || u?.id || null,
           email: u?.email || '',
           tenantId: u?.tenant?.tenantId || u?.tenantId || null,
           isSystemAdmin: !!u?.isSystemAdmin,
           isTenantAdmin: !!u?.isTenantAdmin,
-          membershipsCount: Array.isArray(u?.memberships) ? u.memberships.length : 0,
-          groupsCount: Array.isArray(u?.groups) ? u.groups.length : 0,
-          groupsPreview: Array.isArray(u?.groups) ? u.groups.slice(0, 5) : [],
+          groupsCount: groups.length,
+          groupsPreview,
+          membershipsCount: memberships.length,
+          membershipsPreview,
         });
+        window.__DBG_USER = u;
+        console.groupEnd();
       } catch {}
+      // ---------------------------------------------------------------------
+
       return u;
     });
 }
+
 
 export function refreshStored(rotate = false) {
   const rt = getRefreshToken();
